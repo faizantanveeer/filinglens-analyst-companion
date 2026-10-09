@@ -1,0 +1,9 @@
+.venv
+**/__pycache__
+data
+eval/.index
+eval/data
+frontend/node_modules
+frontend/.next
+frontend/.env.local
+.env

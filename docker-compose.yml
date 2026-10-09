@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: { context: ., dockerfile: Dockerfile.backend }
+    environment:
+      FRONTEND_ORIGIN: http://localhost:3000
+    ports: ["8000:8000"]
+    volumes: ["filinglens-data:/data"]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000  # the browser calls the API directly
+    ports: ["3000:3000"]
+    depends_on: [backend]
+
+volumes:
+  filinglens-data:

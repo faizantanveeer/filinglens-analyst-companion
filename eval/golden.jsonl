@@ -1,0 +1,20 @@
+{"question": "What were Berkshire's operating earnings in 2023?", "expected_pages": [13], "expected_answer_contains": ["37,350", "37.35", "37.4"], "answerable": true}
+{"question": "How large was Berkshire's insurance float at the end of 2023?", "expected_pages": [20], "expected_answer_contains": ["168,895", "168.9"], "answerable": true}
+{"question": "What were net earnings attributable to Berkshire Hathaway shareholders in 2023?", "expected_pages": [59], "expected_answer_contains": ["96,223", "96.2"], "answerable": true}
+{"question": "What were Berkshire's insurance underwriting earnings in 2023?", "expected_pages": [13, 59], "expected_answer_contains": ["5,428", "5.4"], "answerable": true}
+{"question": "What percentage of Occidental Petroleum's common shares did Berkshire own at year-end 2023?", "expected_pages": [11], "expected_answer_contains": ["27.8"], "answerable": true}
+{"question": "Approximately how many people did Berkshire and its subsidiaries employ at the end of 2023?", "expected_pages": [25], "expected_answer_contains": ["396,500"], "answerable": true}
+{"question": "How many miles of main track does BNSF operate?", "expected_pages": [14], "expected_answer_contains": ["23,759"], "answerable": true}
+{"question": "What was Berkshire's total cost for its holdings in the five Japanese companies?", "expected_pages": [12], "expected_answer_contains": ["1.6 trillion"], "answerable": true}
+{"question": "Roughly what percentage of each of the five Japanese trading companies does Berkshire own?", "expected_pages": [12], "expected_answer_contains": ["9%", "9 percent", "9.9"], "answerable": true}
+{"question": "What was the overall gain in Berkshire's per-share market value from 1964 to 2023?", "expected_pages": [19], "expected_answer_contains": ["4,384,748"], "answerable": true}
+{"question": "Does Berkshire currently pay a dividend?", "expected_pages": [10], "expected_answer_contains": ["not", "no "], "answerable": true}
+{"question": "On what date is the 2024 annual shareholders meeting held?", "expected_pages": [21, 17], "expected_answer_contains": ["May 4"], "answerable": true}
+{"question": "What were BNSF's earnings in 2023?", "expected_pages": [13, 59], "expected_answer_contains": ["5,087", "5.1"], "answerable": true}
+{"question": "By what percentage did operating earnings grow from 2022 to 2023?", "expected_pages": [13], "expected_answer_contains": ["21.06", "21.1", "21%"], "answerable": true}
+{"question": "By what percentage did insurance investment income increase from 2022 to 2023?", "expected_pages": [13, 59], "expected_answer_contains": ["47.55", "47.5", "47.6", "48%"], "answerable": true}
+{"question": "By what percentage did Berkshire's float grow from 2022 to 2023?", "expected_pages": [20], "expected_answer_contains": ["2.92", "2.9"], "answerable": true}
+{"question": "How many employees does GEICO have?", "expected_pages": [149], "expected_answer_contains": ["30,584"], "answerable": true}
+{"question": "What was Berkshire's total revenue in fiscal year 2025?", "expected_pages": [], "expected_answer_contains": [], "answerable": false}
+{"question": "How many iPhones did Apple sell in 2023?", "expected_pages": [], "expected_answer_contains": [], "answerable": false}
+{"question": "What was Tesla's net income in 2023?", "expected_pages": [], "expected_answer_contains": [], "answerable": false}
