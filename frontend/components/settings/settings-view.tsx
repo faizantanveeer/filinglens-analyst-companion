@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MemorySettings } from "@/components/settings/memory-settings";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, AUTH_EVENT } from "@/lib/api";
 import {
   getApiKey,
   getFallbackKey,
@@ -90,7 +90,7 @@ function Toggle({ id, label, hint, checked, onChange }: { id: string; label: str
 }
 
 export function SettingsView() {
-  const { settings, update, tokensUsed } = useSettings();
+  const { settings, update, tokensUsed, costUsed } = useSettings();
   const [key, setKey] = useState("");
   const [fallbackKey, setFbKey] = useState("");
   const [testing, setTesting] = useState(false);
@@ -99,10 +99,16 @@ export function SettingsView() {
   const isAzure = settings.provider === "azure";
 
   // Keys come from sessionStorage after mount (not available during server render).
+  // Re-read after log-in / log-out too: logging out clears the keys, and the form must not keep showing them.
   useEffect(() => {
-    setKey(getApiKey() ?? "");
-    setFbKey(getFallbackKey() ?? "");
-    setSKey(getSearchKey() ?? "");
+    const load = () => {
+      setKey(getApiKey() ?? "");
+      setFbKey(getFallbackKey() ?? "");
+      setSKey(getSearchKey() ?? "");
+    };
+    load();
+    window.addEventListener(AUTH_EVENT, load);
+    return () => window.removeEventListener(AUTH_EVENT, load);
   }, []);
 
   const changeProvider = (p: Provider) => {
@@ -338,6 +344,26 @@ export function SettingsView() {
                   Reset
                 </Button>
               </div>
+            </Field>
+            <Field id="alert-tokens" label="Alert after tokens" hint="Get a notification when this session's usage passes this. 0 = off.">
+              <Input
+                id="alert-tokens"
+                type="number"
+                min={0}
+                step={1000}
+                value={settings.alert_tokens}
+                onChange={(e) => update({ alert_tokens: num(e.target.value, 0, 10_000_000) })}
+              />
+            </Field>
+            <Field id="alert-cost" label="Alert after spend (USD)" hint={`Estimated from list prices. Spent so far: $${costUsed.toFixed(4)}. 0 = off.`}>
+              <Input
+                id="alert-cost"
+                type="number"
+                min={0}
+                step={0.1}
+                value={settings.alert_cost}
+                onChange={(e) => update({ alert_cost: Math.max(0, Math.min(10_000, Number(e.target.value) || 0)) })}
+              />
             </Field>
           </div>
           <div className="space-y-5 border-t pt-6">

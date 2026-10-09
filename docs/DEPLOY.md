@@ -32,7 +32,6 @@ cloud rerank threshold (`MIN_RERANK_SCORE=0.1`, Jina's 0–1 scale) still needs 
 `/api/index?__path=…` and `backend/app/serverless.py` restores it. Environment variables:
 - **Mode and runtime:** `DEPLOY_MODE=cloud`, `DATA_DIR=/tmp/filinglens`, `PARSE_WORKERS=1`, `MAX_UPLOAD_MB=20`, `MIN_RERANK_SCORE=0.1`
 - **CORS:** `FRONTEND_ORIGIN=https://filinglens-analyst-companion.vercel.app`, and `FRONTEND_ORIGIN_REGEX` for this project's preview URLs
-- **SEC:** `SEC_USER_AGENT`
 - **Secrets (stored as *sensitive*):** `DATABASE_URL`, `QDRANT_URL`, `QDRANT_API_KEY`, `JINA_API_KEY`
 
 **`filinglens-analyst-companion`** (Next.js, root dir `frontend`): `NEXT_PUBLIC_API_URL=https://filinglens-api.vercel.app`.

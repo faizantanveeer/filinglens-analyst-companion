@@ -18,7 +18,6 @@ from . import memory as user_memory
 from . import sessions
 from .config import settings
 from .embeddings import warm_up
-from .ingest import edgar
 from .ingest.parser import SUPPORTED, filetype_for
 from .ingest.preview import render_page
 from .llm.gateway import LLMConfig, LLMError, complete
@@ -30,7 +29,6 @@ from .retrieval.rerank import passes_threshold, rerank
 from .schemas import (
     ChatRequest,
     DocumentOut,
-    EdgarImportRequest,
     LLMSettings,
     RenameRequest,
     RetrieveRequest,
@@ -289,7 +287,7 @@ def complete_upload(upload_id: str, body: UploadComplete, background: Background
 
 @app.post("/documents", response_model=DocumentOut, status_code=202)
 async def upload_document(background: BackgroundTasks, file: UploadFile = File(...), user: dict = Depends(current_user)):
-    """Accept a PDF, HTML (e.g. an EDGAR filing), TXT/MD or EPUB, then index it in the background.
+    """Accept a PDF, HTML, TXT/MD or EPUB, then index it in the background.
     The UI polls GET /documents for live progress."""
     data = await file.read()
     if len(data) > settings.max_upload_mb * 1024 * 1024:
@@ -302,17 +300,6 @@ async def upload_document(background: BackgroundTasks, file: UploadFile = File(.
         raise HTTPException(415, f"The file content doesn't look like {ftype.upper()}.")
     _check_upload_allowed(user, len(data))
     return _store_and_index(background, data, name, ftype, user)
-
-
-@app.post("/documents/edgar", response_model=DocumentOut, status_code=202)
-def import_from_edgar(body: EdgarImportRequest, background: BackgroundTasks, user: dict = Depends(current_user)):
-    _check_upload_allowed(user, 0)
-    """Fetch the latest filing of a form type for a ticker from SEC EDGAR and index it."""
-    try:
-        filing = edgar.latest_filing(body.ticker, body.form)
-    except edgar.EdgarError as exc:
-        raise HTTPException(502, str(exc)) from None
-    return _store_and_index(background, filing["content"], filing["filename"], "html", user, filing["url"])
 
 
 @app.get("/documents/{doc_id}/pages/{page}.png")
@@ -467,7 +454,7 @@ def get_session(sid: str, user: dict = Depends(current_user)):
 
 @app.patch("/sessions/{sid}")
 def rename_session(sid: str, body: RenameRequest, user: dict = Depends(current_user)):
-    if not sessions.rename(user["id"], sid, body.title):
+    if not sessions.update(user["id"], sid, title=body.title, pinned=body.pinned):
         raise HTTPException(404, "Chat session not found.")
     return {"ok": True}
 
