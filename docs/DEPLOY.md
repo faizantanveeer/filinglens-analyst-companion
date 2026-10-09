@@ -1,61 +1,53 @@
-# Deploying FilingLens (free): Vercel + Modal
+# Deployment: everything on Vercel (cloud mode)
 
 ```
-Browser ──▶ Vercel (Next.js UI)       https://filinglens-analyst-companion.vercel.app
-   └──────▶ Modal (FastAPI API)       https://<modal-workspace>--filinglens-api-api.modal.run
+Browser ──▶ filinglens-analyst-companion.vercel.app   (Next.js, root dir: frontend/)
+   └──────▶ filinglens-api.vercel.app                 (FastAPI as a Python function, repo root: api/index.py)
+                ├─ Neon Postgres     documents, file pieces, sessions, memory, cache, traces
+                ├─ Qdrant Cloud      dense + BM25 sparse vectors (collection chunks_jina512)
+                └─ Jina AI           embeddings (jina-embeddings-v3, 512-d) + reranking (jina-reranker-v2)
 ```
 
-- **Why two hosts:** the API runs local embedding and reranking models, an on-disk vector index, background ingestion and SQLite. That needs ~2–3 GB of RAM and a long-lived process, which Vercel's serverless functions can't host. Free "always-on" tiers elsewhere give only 256–512 MB. Modal runs the container on demand, and its free plan includes monthly credits.
-- **Why there are no CORS problems:** the browser calls the API directly. The API only accepts your Vercel production origin plus preview URLs of this project (a regex), set when the image is built. Large uploads and long streaming answers don't pass through Vercel, so its body-size and duration limits don't apply.
+**Why cloud mode exists:** the local stack (LiteLLM, onnxruntime, fastembed models) is about 808 MB and needs a persistent disk.
+Vercel functions are small, short-lived and have no disk, so cloud mode swaps in hosted services:
 
-## 1. Backend: Modal (≈10 min, mostly the first image build)
+| Local mode | Cloud mode |
+|---|---|
+| SQLite | Postgres (`DATABASE_URL`, Neon free tier) |
+| Embedded Qdrant on disk | Qdrant Cloud (`QDRANT_URL`, `QDRANT_API_KEY`) |
+| fastembed models (bge-small, BM25, MiniLM) | Jina API (`JINA_API_KEY`) + pure-Python BM25 |
+| LiteLLM | Slim OpenAI-compatible client (`openai` SDK) |
+| Files on disk, background indexing | Files in Postgres; indexing inside the request (≤ 300 s) |
 
-1. Create a free account at modal.com (sign in with GitHub).
-2. Log in once on your machine. It opens the browser and stores a token in `~/.modal.toml`:
-   ```bash
-   .venv/Scripts/modal setup
-   ```
-3. Deploy. The defaults target `https://filinglens-analyst-companion.vercel.app`; override them with the
-   `FILINGLENS_FRONTEND_ORIGIN` / `FILINGLENS_ORIGIN_REGEX` / `FILINGLENS_SEC_USER_AGENT` env vars if needed:
-   ```bash
-   .venv/Scripts/modal deploy deploy/modal_app.py
-   ```
-   The first build installs dependencies, bakes in the models and indexes the sample report (~5–10 min).
-   Later deploys reuse cached layers. The command prints the URL; check `<url>/health` returns `{"status":"ok"}`.
+Cloud mode only switches on with `DEPLOY_MODE=cloud`, so credentials in a local `.env` never redirect a local run.
+Measured on Vercel (probe): SSE streams live, 300 s requests work, parsing runs at 0.52 s/page (152 pages ≈ 80 s).
 
-How it runs:
-- **One container** (`max_containers=1`), because the embedded index and SQLite are single-process. It serves up to 32 requests at once.
-- **The Berkshire Hathaway 2023 report is pre-indexed and protected.** Uploads are capped at 20 MB.
-- **It scales to zero after 15 idle minutes.** The next visit wakes it in about 10–30 s, and the UI shows "Waking API…". Visitor uploads and chats live on the container disk and reset when it scales down.
+**Retrieval numbers differ by mode.** Local-mode results (`eval/results.md`) don't carry over to cloud mode. The
+cloud rerank threshold (`MIN_RERANK_SCORE=0.1`, Jina's 0–1 scale) still needs tuning: run
+`DEPLOY_MODE=cloud python eval/run_eval.py` → `eval/results-cloud.md`.
 
-## 2. Frontend: Vercel (≈3 min)
+## Projects and settings
 
-1. At vercel.com → **Add New… → Project → Import** `faizantanveeer/filinglens-analyst-companion` (GitHub is connected).
-2. Configure:
-   - **Project Name:** `filinglens-analyst-companion` (it must match the origin the API allows)
-   - **Root Directory:** `frontend` ← important
-   - **Framework Preset:** Next.js (auto-detected)
-   - **Environment Variable:** `NEXT_PUBLIC_API_URL` = the Modal URL from step 1.3
-3. **Deploy.** Production builds from `main`; pushes to `dev` get preview URLs, which the API accepts.
+**`filinglens-api`** (Vercel project, root = repo root, no framework). `vercel.json` rewrites every path to
+`/api/index?__path=…` and `backend/app/serverless.py` restores it. Environment variables:
+- **Mode and runtime:** `DEPLOY_MODE=cloud`, `DATA_DIR=/tmp/filinglens`, `PARSE_WORKERS=1`, `MAX_UPLOAD_MB=20`, `MIN_RERANK_SCORE=0.1`
+- **CORS:** `FRONTEND_ORIGIN=https://filinglens-analyst-companion.vercel.app`, and `FRONTEND_ORIGIN_REGEX` for this project's preview URLs
+- **SEC:** `SEC_USER_AGENT`
+- **Secrets (stored as *sensitive*):** `DATABASE_URL`, `QDRANT_URL`, `QDRANT_API_KEY`, `JINA_API_KEY`
 
-If Vercel gives a different domain (name taken) or you add a custom domain, redeploy the API with
-`FILINGLENS_FRONTEND_ORIGIN=https://<your-domain>` (and a matching `FILINGLENS_ORIGIN_REGEX`).
+**`filinglens-analyst-companion`** (Next.js, root dir `frontend`): `NEXT_PUBLIC_API_URL=https://filinglens-api.vercel.app`.
 
-## 3. Check it works
+`.vercelignore` at the repo root applies to **both** projects, so it must never exclude `frontend/`.
 
-- Open the Vercel URL. The header badge turns **API online** (or shows "Waking API…" first).
-- **Settings:** add your model key (it stays in the browser tab), then **Test connection**.
-- **Chat:** try the Executive briefing starter. Citations open the real page with highlights.
-- **Documents:** import a filing by ticker (e.g. `AAPL`, 10-K).
+## Releasing
 
-## Branch workflow
+- **Branches:** work on `dev` (every push gets preview URLs); merge `dev` → `main` to deploy production. Both projects rebuild.
+- **Sample document:** it's already indexed in the cloud services. To re-seed, run
+  `DEPLOY_MODE=cloud PARSE_WORKERS=1 DATA_DIR=/tmp/fl python -m backend.app.seed eval/data/report.pdf`, with the cloud credentials in `.env`.
+- **Uploads:** the browser sends files in ≤ 4 MB pieces (`/uploads/...`) to stay under Vercel's 4.5 MB request limit.
 
-- `dev`: day-to-day work; every push gets a Vercel preview URL.
-- `main`: production; merge `dev` → `main` to update the live site.
-- **Backend changes:** `modal deploy deploy/modal_app.py` from the branch you mean to release.
+## Other hosting options (kept, not active)
 
-## Alternative: Hugging Face Spaces (paid)
-
-`deploy/huggingface/` and `deploy/push_space.py` package the same API as a Docker Space; the image is built and tested.
-Hugging Face now requires a PRO subscription for Docker Spaces on CPU (`402 Payment Required` for free accounts), so
-this route is kept only as a paid option.
+- **Docker:** `Dockerfile.backend` / `docker-compose.yml` run local mode anywhere.
+- **Hugging Face Spaces** (`deploy/huggingface`, `deploy/push_space.py`): Docker Spaces on CPU now require PRO.
+- **Modal** (`deploy/modal_app.py`): needs a payment method before the free credits apply.
