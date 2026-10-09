@@ -30,38 +30,44 @@ def create(owner: str, title: str = "New chat") -> dict:
     sid, now = uuid.uuid4().hex[:16], _now()
     with tx() as c:
         c.execute("INSERT INTO sessions (id, owner, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (sid, owner, title, now, now))
-    return {"id": sid, "title": title, "created_at": now, "updated_at": now}
+    return {"id": sid, "title": title, "created_at": now, "updated_at": now, "pinned": False}
 
 
 def get(owner: str, sid: str) -> dict | None:
     with tx() as c:
-        row = c.execute("SELECT id, title, created_at, updated_at FROM sessions WHERE id = ? AND owner = ?", (sid, owner)).fetchone()
-    return dict(row) if row else None
+        row = c.execute("SELECT id, title, created_at, updated_at, pinned FROM sessions WHERE id = ? AND owner = ?", (sid, owner)).fetchone()
+    return _row(row) if row else None
+
+
+def _row(r) -> dict:
+    d = dict(r)
+    d["pinned"] = bool(d.get("pinned"))
+    return d
 
 
 def list_sessions(owner: str, query: str = "", limit: int = 100) -> list[dict]:
-    """Newest first. With a query, match titles or any message text; return a snippet of the match."""
+    """Pinned first, then newest. With a query, match titles or any message text; return a snippet of the match."""
     with tx() as c:
         if not query.strip():
             rows = c.execute(
-                "SELECT id, title, created_at, updated_at, NULL AS snippet FROM sessions WHERE owner = ? ORDER BY updated_at DESC LIMIT ?",
+                "SELECT id, title, created_at, updated_at, pinned, NULL AS snippet FROM sessions WHERE owner = ? ORDER BY pinned DESC, updated_at DESC LIMIT ?",
                 (owner, limit),
             ).fetchall()
         else:
             escaped = query.strip().replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")  # LIKE wildcards are literal
             like = f"%{escaped}%"
             rows = c.execute(
-                r"""SELECT s.id, s.title, s.created_at, s.updated_at,
+                r"""SELECT s.id, s.title, s.created_at, s.updated_at, s.pinned,
                           (SELECT m.content FROM messages m WHERE m.session_id = s.id AND m.content LIKE ? ESCAPE '\' ORDER BY m.id LIMIT 1) AS snippet
                    FROM sessions s
                    WHERE s.owner = ? AND (s.title LIKE ? ESCAPE '\'
                          OR EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id AND m.content LIKE ? ESCAPE '\'))
-                   ORDER BY s.updated_at DESC LIMIT ?""",
+                   ORDER BY s.pinned DESC, s.updated_at DESC LIMIT ?""",
                 (like, owner, like, like, limit),
             ).fetchall()
     out = []
     for r in rows:
-        d = dict(r)
+        d = _row(r)
         if d["snippet"]:
             d["snippet"] = _snippet(d["snippet"], query)
         out.append(d)
@@ -77,9 +83,22 @@ def _snippet(text: str, query: str, width: int = 90) -> str:
 
 
 def rename(owner: str, sid: str, title: str) -> bool:
-    title = " ".join(title.split())[:120] or "Untitled chat"
+    return update(owner, sid, title=title)
+
+
+def update(owner: str, sid: str, title: str | None = None, pinned: bool | None = None) -> bool:
+    """Rename and/or pin. Neither changes updated_at, so the chat keeps its place in history."""
+    sets, args = [], []
+    if title is not None:
+        sets.append("title = ?")
+        args.append(" ".join(title.split())[:120] or "Untitled chat")
+    if pinned is not None:
+        sets.append("pinned = ?")
+        args.append(1 if pinned else 0)
+    if not sets:
+        return get(owner, sid) is not None
     with tx() as c:
-        cur = c.execute("UPDATE sessions SET title = ?, updated_at = updated_at WHERE id = ? AND owner = ?", (title, sid, owner))
+        cur = c.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE id = ? AND owner = ?", (*args, sid, owner))
     return cur.rowcount > 0
 
 

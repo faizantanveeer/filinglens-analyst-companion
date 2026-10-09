@@ -71,13 +71,9 @@ class UploadComplete(BaseModel):
     filename: str = Field(min_length=1, max_length=200)
 
 
-class EdgarImportRequest(BaseModel):
-    ticker: str = Field(min_length=1, max_length=10, pattern=r"^[A-Za-z.\-]+$")
-    form: Literal["10-K", "10-Q", "20-F", "40-F"] = "10-K"
-
-
 class RenameRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    pinned: bool | None = None
 
 
 class ValidateRequest(BaseModel):

@@ -1,3 +1,4 @@
+import pytest
 """Cloud-mode building blocks, tested without any network: BM25, the Postgres SQL adapter,
 chunked uploads, the Vercel path fix and the slim LLM client."""
 
@@ -90,7 +91,7 @@ def test_slim_llm_client_uses_openai_compatible_endpoints(monkeypatch):
     monkeypatch.setattr(openai, "OpenAI", FakeClient)
     monkeypatch.setattr(gateway, "litellm", None)
     r = gateway.complete("small", [{"role": "user", "content": "hi"}], LLMConfig("groq", "llama-3.1-8b-instant", "x", api_key="gsk-test-abcdefghijkl"), json_mode=True)
-    assert r.text == '{"ok": true}' and r.input_tokens == 11 and r.cost == 0.0
+    assert r.text == '{"ok": true}' and r.input_tokens == 11 and r.cost == pytest.approx((11 * 0.05 + 3 * 0.08) / 1e6)  # list-price estimate
     client_kw = calls[0][1]
     assert client_kw["base_url"] == "https://api.groq.com/openai/v1"
     assert calls[1]["model"] == "llama-3.1-8b-instant" and "max_tokens" in calls[1] and calls[1]["response_format"] == {"type": "json_object"}

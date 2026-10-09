@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, FileText, LogIn, MessageSquare, PanelLeft, ScanSearch, Settings, SquarePen, UserRound, X } from "lucide-react";
+import { BarChart3, FileText, LogIn, MessageSquare, PanelLeft, ScanSearch, Settings, SquarePen, X } from "lucide-react";
 
 import { ApiStatus } from "@/components/api-status";
-import { AccountBox } from "@/components/auth/account-box";
+import { AccountBox, ProfileMenu } from "@/components/auth/account-box";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useChat } from "@/components/chat/chat-provider";
 import { SessionList } from "@/components/sessions/session-list";
@@ -97,9 +97,7 @@ function Rail({ pathname, onExpand }: { pathname: string; onExpand: () => void }
             <LogIn className="size-4" aria-hidden />
           </button>
         ) : (
-          <button type="button" onClick={onExpand} className={iconBtn} aria-label={`Account: ${me?.email ?? ""}`} title={me?.email ?? "Account"}>
-            <UserRound className="size-4" aria-hidden />
-          </button>
+          <ProfileMenu compact />
         )}
       </div>
     </div>

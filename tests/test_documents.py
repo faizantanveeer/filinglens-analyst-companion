@@ -1,11 +1,9 @@
-import json
 import time
 
 import pymupdf
 from fastapi.testclient import TestClient
 
 from backend.app import documents, main
-from backend.app.ingest import edgar
 from backend.app.ingest.chunker import chunk_pages
 from backend.app.ingest.parser import Page, filetype_for, parse_batches
 from backend.app.schemas import AnswerJSON
@@ -79,26 +77,6 @@ def test_ingest_reports_progress_and_page_preview_highlights():
     assert img.status_code == 200 and img.headers["content-type"] == "image/png" and img.content[:4] == b"\x89PNG"
     assert client.get(f"/documents/{doc_id}/pages/99.png").status_code == 404
     assert client.get("/documents/nope/pages/1.png").status_code == 404
-
-
-def test_edgar_import_uses_latest_form(monkeypatch):
-    responses = {
-        edgar.TICKERS_URL: json.dumps({"0": {"cik_str": 1234, "ticker": "ACME", "title": "Acme Corp"}}).encode(),
-        edgar.SUBMISSIONS_URL.format(cik=1234): json.dumps(
-            {"filings": {"recent": {"form": ["8-K", "10-K", "10-K"], "accessionNumber": ["a-1", "0001-24-01", "0001-23-01"],
-                                    "primaryDocument": ["x.htm", "acme-2024.htm", "acme-2023.htm"],
-                                    "reportDate": ["", "2024-12-31", "2023-12-31"], "filingDate": ["", "", ""]}}}
-        ).encode(),
-        edgar.ARCHIVE_URL.format(cik=1234, acc="00012401", doc="acme-2024.htm"): HTML.replace(b"Acme", b"Acme EDGAR"),
-    }
-    monkeypatch.setattr(edgar, "_tickers", {})
-    monkeypatch.setattr(edgar, "_get", lambda url, timeout=30: responses[url])
-    r = client.post("/documents/edgar", json={"ticker": "acme", "form": "10-K"})
-    assert r.status_code == 202, r.text
-    d = wait_ready(r.json()["id"])
-    assert d["filename"] == "ACME 10-K 2024-12-31.html" and d["source_url"].endswith("acme-2024.htm") and d["status"] == "ready"
-    assert client.post("/documents/edgar", json={"ticker": "NOPE"}).status_code == 502
-    assert client.post("/documents/edgar", json={"ticker": "ACME; rm -rf"}).status_code == 422
 
 
 def test_key_terms_never_carry_numbers():

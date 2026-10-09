@@ -143,6 +143,9 @@ MIGRATIONS = {
     "traces": {
         "owner": "TEXT",  # X-Client-Id, so Insights only shows a visitor their own requests
     },
+    "sessions": {
+        "pinned": "INTEGER DEFAULT 0",  # pinned chats are listed first, in their own section
+    },
 }
 
 

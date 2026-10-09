@@ -135,7 +135,7 @@ export type DocumentInfo = {
   filetype?: string | null;
   progress?: number | null; // 0..1 while processing
   stage?: string | null; // e.g. "Indexed 48/152 pages · 130 chunks"
-  source_url?: string | null; // set for filings imported from SEC EDGAR
+  source_url?: string | null; // where the document came from, if known
   protected?: boolean | null; // the bundled sample in the public demo (can't be deleted)
   owner_id?: string | null;
 };
@@ -162,7 +162,7 @@ export type Me = {
 
 export type Turn = { role: "user" | "assistant"; content: string };
 
-export type SessionInfo = { id: string; title: string; created_at: string; updated_at: string; snippet?: string | null };
+export type SessionInfo = { id: string; title: string; created_at: string; updated_at: string; pinned?: boolean; snippet?: string | null };
 
 export type StoredMessage = {
   id: number;
@@ -233,8 +233,6 @@ export const api = {
 
   listDocuments: (signal?: AbortSignal) => request<DocumentInfo[]>("/documents", { signal }),
 
-  importFromEdgar: (ticker: string, form: string) =>
-    request<DocumentInfo>("/documents/edgar", json({ ticker, form })),
 
   deleteDocument: (id: string) => request<void>(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
@@ -290,6 +288,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
+    }),
+  pinSession: (id: string, pinned: boolean) =>
+    request<{ ok: boolean }>(`/sessions/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
     }),
   deleteSession: (id: string) => request<void>(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
   deleteAllSessions: () => request<{ deleted: number }>("/sessions", { method: "DELETE" }),

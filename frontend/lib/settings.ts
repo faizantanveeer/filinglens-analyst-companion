@@ -21,6 +21,8 @@ export type AppSettings = {
   azure_api_version: string;
   top_k: number;
   token_budget: number; // per browser session, 0 = unlimited
+  alert_tokens: number; // warn once usage passes this many tokens, 0 = off
+  alert_cost: number; // warn once estimated spend passes this many USD, 0 = off
   use_cache: boolean;
   use_guardrails: boolean;
   use_judge: boolean;
@@ -48,6 +50,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   azure_api_version: "2024-10-21",
   top_k: 5,
   token_budget: 50000,
+  alert_tokens: 25000,
+  alert_cost: 0.5,
   use_cache: true,
   use_guardrails: true,
   use_judge: false,
@@ -61,6 +65,7 @@ const API_KEY = "filinglens.llmKey";
 const FALLBACK_KEY = "filinglens.llmFallbackKey";
 const SEARCH_KEY = "filinglens.searchKey";
 const TOKENS_USED = "filinglens.tokensUsed";
+const COST_USED = "filinglens.costUsed";
 
 // ---- tiny external store so every component sees changes immediately ----
 const listeners = new Set<() => void>();
@@ -117,16 +122,38 @@ export const setSearchKey = (key: string | null) => write("session", SEARCH_KEY,
 
 export const getTokensUsed = () => Number(read("session", TOKENS_USED) ?? 0) || 0;
 export const addTokensUsed = (n: number) => write("session", TOKENS_USED, String(getTokensUsed() + n));
-export const resetTokensUsed = () => write("session", TOKENS_USED, null);
+export const getCostUsed = () => Number(read("session", COST_USED) ?? 0) || 0;
+export const resetTokensUsed = () => {
+  write("session", COST_USED, null);
+  write("session", TOKENS_USED, null);
+};
+
+/** Add one answer's usage; returns the alerts it just crossed (each fires once until usage is reset). */
+export function recordUsage(tokens: number, cost: number): string[] {
+  const s = getSettings();
+  const t0 = getTokensUsed(), c0 = getCostUsed();
+  const t1 = t0 + tokens, c1 = c0 + cost;
+  write("session", COST_USED, String(c1));
+  addTokensUsed(tokens);
+  const alerts: string[] = [];
+  if (s.alert_tokens > 0 && t0 < s.alert_tokens && t1 >= s.alert_tokens)
+    alerts.push(`You've used ${t1.toLocaleString()} tokens this session (alert at ${s.alert_tokens.toLocaleString()}).`);
+  if (s.alert_cost > 0 && c0 < s.alert_cost && c1 >= s.alert_cost)
+    alerts.push(`Estimated spend this session is $${c1.toFixed(2)} (alert at $${s.alert_cost.toFixed(2)}).`);
+  if (s.token_budget > 0 && t0 < s.token_budget * 0.8 && t1 >= s.token_budget * 0.8 && t1 < s.token_budget)
+    alerts.push(`80% of your session token budget is used (${t1.toLocaleString()} of ${s.token_budget.toLocaleString()}).`);
+  return alerts;
+}
 
 /** React hook: settings + whether a key is present + session token usage. */
 export function useSettings() {
   const settings = useSyncExternalStore(subscribe, getSettings, () => DEFAULT_SETTINGS);
   const hasKey = useSyncExternalStore(subscribe, () => Boolean(getApiKey()), () => false);
   const tokensUsed = useSyncExternalStore(subscribe, getTokensUsed, () => 0);
+  const costUsed = useSyncExternalStore(subscribe, getCostUsed, () => 0);
   const hasSearchKey = useSyncExternalStore(subscribe, () => Boolean(getSearchKey()), () => false);
   const update = useCallback((patch: Partial<AppSettings>) => saveSettings({ ...getSettings(), ...patch }), []);
   const ready = hasKey || settings.provider === "ollama";
   const webSearch = settings.use_web_search && hasSearchKey;
-  return { settings, update, hasKey, ready, tokensUsed, hasSearchKey, webSearch };
+  return { settings, update, hasKey, ready, tokensUsed, costUsed, hasSearchKey, webSearch };
 }

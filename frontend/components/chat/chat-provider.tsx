@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useSessions } from "@/components/sessions/sessions-provider";
 import { api, ApiError, AUTH_EVENT, toRequestSettings, type StoredMessage } from "@/lib/api";
-import { addTokensUsed, getSettings, getTokensUsed } from "@/lib/settings";
+import { getSettings, getTokensUsed, recordUsage } from "@/lib/settings";
 import type { AnswerType, ChartData, Citation, DoneEvent } from "@/lib/sse";
 
 export type Message = {
@@ -176,7 +176,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               patch(botId, (m) => ({ ...m, suggestions: ev.data.suggestions }));
               break;
             case "done":
-              addTokensUsed(ev.data.usage.input_tokens + ev.data.usage.output_tokens);
+              for (const alert of recordUsage(ev.data.usage.input_tokens + ev.data.usage.output_tokens, ev.data.usage.cost ?? 0))
+                toast.warning(alert, { description: "Change usage alerts in Settings.", duration: 10000 });
               patch(botId, (m) => ({ ...m, status: "done", step: undefined, answerType: ev.data.answer_type, meta: ev.data }));
               if (ev.data.web_error) toast.warning(ev.data.web_error);
               break;
