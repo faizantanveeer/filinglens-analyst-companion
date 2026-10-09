@@ -64,10 +64,6 @@ End to end: **208 s → 129 s** for 152 pages. Embedding (about 90 s) is now the
 **Why ~500 tokens with overlap?** Big enough to hold a paragraph plus its table, small enough that the reranker
 and the LLM see focused context. The overlap stops a sentence near a boundary from losing its subject.
 
-**EDGAR import** (`ingest/edgar.py`): ticker → CIK (from the SEC's ticker map, cached for a day) → submissions JSON →
-latest 10-K/10-Q/20-F/40-F → primary HTML document. Only fixed sec.gov URLs are fetched, so there's no SSRF.
-The SEC requires a User-Agent with contact details (`SEC_USER_AGENT`).
-
 ---
 
 ## 4. Retrieval: hybrid search, RRF and reranking

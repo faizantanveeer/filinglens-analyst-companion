@@ -73,10 +73,6 @@ class Settings(BaseSettings):
     parse_workers: int = 4
     parse_batch_pages: int = 16
 
-    # SEC EDGAR import. The SEC requires a descriptive User-Agent with contact details:
-    # set SEC_USER_AGENT="YourApp your.email@example.com" in .env.
-    sec_user_agent: str = "FilingLens research tool admin@example.com"
-
     # Chunking: ~500 tokens with ~15% overlap (tokens estimated as chars / 4).
     chunk_tokens: int = 500
     chunk_overlap: float = 0.15

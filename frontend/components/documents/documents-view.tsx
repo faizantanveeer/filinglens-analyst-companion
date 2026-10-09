@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileText, Landmark, Loader2, Trash2, UploadCloud, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, FileText, Loader2, Trash2, UploadCloud, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ACCEPTED_TYPES, api, ApiError, AUTH_EVENT, type DocumentInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -44,79 +42,6 @@ function StatusBadge({ doc }: { doc: DocumentInfo }) {
     <Badge variant="outline" className="gap-1">
       <Loader2 className="size-3 animate-spin" aria-hidden /> Indexing…
     </Badge>
-  );
-}
-
-const FORMS = [
-  { value: "10-K", label: "10-K · annual report" },
-  { value: "10-Q", label: "10-Q · quarterly report" },
-  { value: "20-F", label: "20-F · foreign annual report" },
-  { value: "40-F", label: "40-F · Canadian annual report" },
-];
-
-/** Pull the latest filing straight from SEC EDGAR by ticker, so nobody has to hunt for a PDF. */
-function EdgarImport({ onImported }: { onImported: () => Promise<void> }) {
-  const [ticker, setTicker] = useState("");
-  const [form, setForm] = useState("10-K");
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const t = ticker.trim().toUpperCase();
-    if (!t) return;
-    setBusy(true);
-    try {
-      const doc = await api.importFromEdgar(t, form);
-      toast.success(`Fetched ${doc.filename} from SEC EDGAR. Indexing has started.`);
-      setTicker("");
-      await onImported();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "EDGAR import failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <form onSubmit={submit} className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
-          <Landmark className="size-4" aria-hidden />
-        </span>
-        <div>
-          <p className="font-medium">Import from SEC EDGAR</p>
-          <p className="text-sm text-muted-foreground">Enter a US-listed ticker to fetch its latest filing. Free, no key needed.</p>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <label htmlFor="ticker" className="sr-only">
-          Ticker
-        </label>
-        <Input
-          id="ticker"
-          value={ticker}
-          onChange={(e) => setTicker(e.target.value.toUpperCase().replace(/[^A-Z.\-]/g, ""))}
-          placeholder="Ticker, e.g. AAPL"
-          maxLength={10}
-          autoComplete="off"
-          className="sm:w-44"
-        />
-        <Select value={form} onValueChange={setForm}>
-          <SelectTrigger aria-label="Filing type" className="sm:w-60">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {FORMS.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button type="submit" disabled={busy || !ticker.trim()} className="sm:ml-auto">
-          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Download aria-hidden />}
-          {busy ? "Fetching…" : "Import"}
-        </Button>
-      </div>
-    </form>
   );
 }
 
@@ -213,11 +138,9 @@ export function DocumentsView() {
           Documents
         </h1>
         <p className="text-muted-foreground">
-          Upload annual reports or import filings from SEC EDGAR. Parsing, embedding and indexing run locally on the server.
+          Upload annual reports and filings (PDF, HTML, TXT, Markdown or EPUB). Parsing, embedding and indexing run locally on the server.
         </p>
       </header>
-
-      <EdgarImport onImported={refresh} />
 
       <div
         onDragOver={(e) => {
@@ -335,9 +258,9 @@ export function DocumentsView() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                    title="Original filing on SEC EDGAR"
+                    title="Original source"
                   >
-                    EDGAR <ExternalLink className="size-3" aria-hidden />
+                    Source <ExternalLink className="size-3" aria-hidden />
                   </a>
                 )}
                 <StatusBadge doc={d} />
