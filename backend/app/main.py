@@ -55,7 +55,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_origin_regex=settings.frontend_origin_regex or None,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-LLM-Key", "X-LLM-Fallback-Key", "X-Search-Key", "X-Client-Id"],
 )
 

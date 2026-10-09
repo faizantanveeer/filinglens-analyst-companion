@@ -24,7 +24,8 @@ function Brand() {
   );
 }
 
-function Nav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+/** "top": Chat + Documents (above the history). "bottom": Settings + Insights (pinned to the sidebar's foot). */
+function Nav({ pathname, onNavigate, group }: { pathname: string; onNavigate?: () => void; group: "top" | "bottom" }) {
   const { sessionId } = useChat();
   // "Chat" returns to the open conversation rather than starting a new one.
   const items = [
@@ -32,9 +33,9 @@ function Nav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => vo
     { href: "/documents", label: "Documents", icon: FileText, active: pathname.startsWith("/documents") },
     { href: "/settings", label: "Settings", icon: Settings, active: pathname.startsWith("/settings") },
     { href: "/insights", label: "Insights", icon: BarChart3, active: pathname.startsWith("/insights") },
-  ];
+  ].slice(group === "top" ? 0 : 2, group === "top" ? 2 : 4);
   return (
-    <nav aria-label="Main" className="flex flex-col gap-0.5 p-3">
+    <nav aria-label={group === "top" ? "Main" : "Settings and insights"} className={cn("flex flex-col gap-0.5 p-3", group === "bottom" && "border-t")}>
       {items.map(({ href, label, icon: Icon, active }) => (
         <Link
           key={label}
@@ -134,8 +135,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
         <div className="flex min-h-0 w-64 flex-1 flex-col">
-          <Nav pathname={pathname} />
+          <Nav pathname={pathname} group="top" />
           <SessionList />
+          <Nav pathname={pathname} group="bottom" />
         </div>
       </aside>
 
@@ -156,8 +158,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <X aria-hidden />
               </Button>
             </div>
-            <Nav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+            <Nav pathname={pathname} group="top" onNavigate={() => setMobileOpen(false)} />
             <SessionList onNavigate={() => setMobileOpen(false)} />
+            <Nav pathname={pathname} group="bottom" onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
