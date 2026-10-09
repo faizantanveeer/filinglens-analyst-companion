@@ -22,7 +22,7 @@ def test_cors_allows_vercel_production_and_previews_only(monkeypatch):
         def preflight(origin):
             r = c.options(
                 "/chat",
-                headers={"Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-llm-key,x-client-id"},
+                headers={"Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-llm-key,authorization"},
             )
             return r.status_code, r.headers.get("access-control-allow-origin")
 
@@ -37,7 +37,10 @@ def test_cors_allows_vercel_production_and_previews_only(monkeypatch):
 
 
 def test_sample_document_cannot_be_deleted():
+    from conftest import user_headers
+
     client = TestClient(main.app)
+    client.headers.update(user_headers(client, "deploy-user@example.com"))
     documents.register("protected-1", "Sample.pdf", "hash-protected-1", "pdf")
     with tx() as c:
         c.execute("UPDATE documents SET protected = 1, status = 'ready' WHERE id = 'protected-1'")
@@ -48,9 +51,14 @@ def test_sample_document_cannot_be_deleted():
 
 
 def test_insights_only_show_your_own_requests():
+    from conftest import user_headers
+
     client = TestClient(main.app)
-    Trace(question="alice's private question", owner="client-alice-01", route="answer").save()
-    Trace(question="bob's private question", owner="client-bob-0001", route="answer").save()
-    alice = client.get("/insights", headers={"X-Client-Id": "client-alice-01"}).json()
+    alice_h, bob_h = user_headers(client, "alice-insights@example.com"), user_headers(client, "bob-insights@example.com")
+    alice_id, bob_id = (client.get("/auth/me", headers=h).json()["id"] for h in (alice_h, bob_h))
+    Trace(question="alice's private question", owner=alice_id, route="answer").save()
+    Trace(question="bob's private question", owner=bob_id, route="answer").save()
+    alice = client.get("/insights", headers=alice_h).json()
     assert [r["question"] for r in alice["recent"]] == ["alice's private question"]
-    assert client.get("/insights").json()["requests"] == 0  # no client id → nothing, not everything
+    assert client.get("/insights").status_code == 401  # no session → nothing
+    assert client.get("/insights", params={"scope": "all"}, headers=alice_h).status_code == 403  # admins only

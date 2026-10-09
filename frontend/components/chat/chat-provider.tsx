@@ -7,11 +7,12 @@
  */
 
 import { useRouter } from "next/navigation";
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useAuth } from "@/components/auth/auth-provider";
 import { useSessions } from "@/components/sessions/sessions-provider";
-import { api, ApiError, toRequestSettings, type StoredMessage } from "@/lib/api";
+import { api, ApiError, AUTH_EVENT, toRequestSettings, type StoredMessage } from "@/lib/api";
 import { addTokensUsed, getSettings, getTokensUsed } from "@/lib/settings";
 import type { AnswerType, ChartData, Citation, DoneEvent } from "@/lib/sse";
 
@@ -70,6 +71,7 @@ function fromStored(m: StoredMessage): Message {
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { refresh } = useSessions();
+  const { refresh: refreshMe } = useAuth();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,6 +92,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setMessages([]);
     setLoading(false);
   }, []);
+
+  // Signing in/out (or a new guest session) changes whose data this is: never keep the previous
+  // person's conversation on screen.
+  useEffect(() => {
+    const onAuth = () => {
+      newChat();
+      router.push("/");
+    };
+    window.addEventListener(AUTH_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_EVENT, onAuth);
+  }, [newChat, router]);
 
   const openSession = useCallback(
     async (id: string) => {
@@ -181,6 +194,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           patch(botId, (m) => ({ ...m, status: "error", step: undefined, error: "Stopped." }));
         } else {
           const message = err instanceof ApiError ? err.message : "Something went wrong.";
+          if (err instanceof ApiError && err.status === 402) {
+            // Out of credits: drop the unanswered turn; the sign-up dialog is already open.
+            setMessages((ms) => ms.slice(0, -2));
+            return;
+          }
           patch(botId, (m) => ({ ...m, status: "error", step: undefined, error: message }));
           toast.error(message);
         }
@@ -188,9 +206,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
         abortRef.current = null;
         void refresh(); // new title / updated order in the sidebar
+        void refreshMe(); // credits used
       }
     },
-    [busy, deep, docScope, patch, refresh, router, sessionId],
+    [busy, deep, docScope, patch, refresh, refreshMe, router, sessionId],
   );
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
