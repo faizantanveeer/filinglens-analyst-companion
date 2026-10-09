@@ -1,5 +1,5 @@
-# The API project deploys only the backend; keep everything else out of the function bundle.
-frontend/
+# Applies to EVERY Vercel project built from this repo (API and frontend), so never ignore frontend/
+# here. These paths are needed by neither deployment.
 tests/
 eval/
 docs/
@@ -9,7 +9,6 @@ data/
 **/__pycache__/
 *.pyc
 .env
-.env.*
 Dockerfile.*
 docker-compose.yml
 start.bat
