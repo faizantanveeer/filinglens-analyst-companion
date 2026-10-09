@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, FileText, MessageSquare, PanelLeft, ScanSearch, Settings, X } from "lucide-react";
+import { BarChart3, FileText, LogIn, MessageSquare, PanelLeft, ScanSearch, Settings, SquarePen, UserRound, X } from "lucide-react";
 
 import { ApiStatus } from "@/components/api-status";
 import { AccountBox } from "@/components/auth/account-box";
+import { useAuth } from "@/components/auth/auth-provider";
 import { useChat } from "@/components/chat/chat-provider";
 import { SessionList } from "@/components/sessions/session-list";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -26,7 +27,7 @@ function Brand() {
 }
 
 /** "top": Chat + Documents (above the history). "bottom": Settings + Insights (pinned to the sidebar's foot). */
-function Nav({ pathname, onNavigate, group }: { pathname: string; onNavigate?: () => void; group: "top" | "bottom" }) {
+function Nav({ pathname, onNavigate, group, compact = false }: { pathname: string; onNavigate?: () => void; group: "top" | "bottom"; compact?: boolean }) {
   const { sessionId } = useChat();
   // "Chat" returns to the open conversation rather than starting a new one.
   const items = [
@@ -36,24 +37,72 @@ function Nav({ pathname, onNavigate, group }: { pathname: string; onNavigate?: (
     { href: "/insights", label: "Insights", icon: BarChart3, active: pathname.startsWith("/insights") },
   ].slice(group === "top" ? 0 : 2, group === "top" ? 2 : 4);
   return (
-    <nav aria-label={group === "top" ? "Main" : "Settings and insights"} className={cn("flex flex-col gap-0.5 p-3", group === "bottom" && "border-t")}>
+    <nav aria-label={group === "top" ? "Main" : "Settings and insights"} className={cn("flex flex-col gap-0.5", compact ? "items-center p-2" : "p-3", group === "bottom" && "border-t")}>
       {items.map(({ href, label, icon: Icon, active }) => (
         <Link
           key={label}
           href={href}
           onClick={onNavigate}
           aria-current={active ? "page" : undefined}
+          aria-label={compact ? label : undefined}
+          title={compact ? label : undefined}
           className={cn(
-            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            "flex items-center gap-3 rounded-md text-sm font-medium transition-colors",
+            compact ? "size-10 justify-center" : "px-3 py-2",
             focusRing,
             active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >
           <Icon className="size-4 shrink-0" aria-hidden />
-          {label}
+          {!compact && label}
         </Link>
       ))}
     </nav>
+  );
+}
+
+/** Collapsed desktop sidebar: an icon rail, so navigation stays one click away. */
+function Rail({ pathname, onExpand }: { pathname: string; onExpand: () => void }) {
+  const router = useRouter();
+  const { newChat } = useChat();
+  const { me, openAuth } = useAuth();
+  const iconBtn = cn("grid size-10 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground", focusRing);
+  return (
+    <div className="flex h-full w-16 flex-col items-center">
+      <div className="flex h-14 w-full shrink-0 items-center justify-center border-b">
+        <button type="button" onClick={onExpand} className={iconBtn} aria-label="Expand sidebar (Ctrl+B)" title="Expand sidebar (Ctrl+B)">
+          <PanelLeft className="size-4" aria-hidden />
+        </button>
+      </div>
+      <div className="flex flex-col items-center gap-0.5 pt-2">
+        <button
+          type="button"
+          onClick={() => {
+            newChat();
+            router.push("/");
+          }}
+          className={iconBtn}
+          aria-label="New chat (Ctrl+K)"
+          title="New chat (Ctrl+K)"
+        >
+          <SquarePen className="size-4" aria-hidden />
+        </button>
+      </div>
+      <Nav pathname={pathname} group="top" compact />
+      <div className="flex-1" />
+      <Nav pathname={pathname} group="bottom" compact />
+      <div className="flex w-full justify-center border-t p-2">
+        {me?.is_guest ? (
+          <button type="button" onClick={() => openAuth("signup")} className={iconBtn} aria-label="Sign up or log in" title={`Free trial: ${me.credits.remaining} of ${me.credits.limit} questions left. Sign up or log in`}>
+            <LogIn className="size-4" aria-hidden />
+          </button>
+        ) : (
+          <button type="button" onClick={onExpand} className={iconBtn} aria-label={`Account: ${me?.email ?? ""}`} title={me?.email ?? "Account"}>
+            <UserRound className="size-4" aria-hidden />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -124,18 +173,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside
         aria-label="Sidebar"
         className={cn(
-          "sticky top-0 hidden h-dvh shrink-0 flex-col overflow-hidden border-r bg-sidebar transition-[width,border-color] duration-200 md:flex",
-          desktopOpen ? "w-64" : "w-0 border-transparent",
+          "sticky top-0 hidden h-dvh shrink-0 flex-col overflow-hidden border-r bg-sidebar transition-[width] duration-200 md:flex",
+          desktopOpen ? "w-64" : "w-16",
         )}
-        inert={!desktopOpen}
       >
-        <div className="flex h-14 w-64 shrink-0 items-center justify-between border-b px-4">
+        {!desktopOpen && <Rail pathname={pathname} onExpand={toggle} />}
+        <div className={cn("flex h-14 w-64 shrink-0 items-center justify-between border-b px-4", !desktopOpen && "hidden")}>
           <Brand />
-          <Button variant="ghost" size="icon" onClick={toggle} aria-label="Close sidebar (Ctrl+B)" title="Close sidebar (Ctrl+B)">
+          <Button variant="ghost" size="icon" onClick={toggle} aria-label="Collapse sidebar (Ctrl+B)" title="Collapse sidebar (Ctrl+B)">
             <PanelLeft aria-hidden />
           </Button>
         </div>
-        <div className="flex min-h-0 w-64 flex-1 flex-col">
+        <div className={cn("flex min-h-0 w-64 flex-1 flex-col", !desktopOpen && "hidden")}>
           <Nav pathname={pathname} group="top" />
           <SessionList />
           <Nav pathname={pathname} group="bottom" />
@@ -178,11 +227,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             title={toggleLabel}
             aria-controls="mobile-nav"
             aria-expanded={mobileOpen}
-            className={cn("-ml-2", desktopOpen && "md:hidden")}
+            className="-ml-2 md:hidden"
           >
             <PanelLeft aria-hidden />
           </Button>
-          <div className={cn(desktopOpen && "md:hidden")}>
+          <div className="md:hidden">
             <Brand />
           </div>
           <div className="ml-auto flex items-center gap-2">
