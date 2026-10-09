@@ -113,9 +113,13 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, [empty]);
 
+  // When a question is added (or a saved chat opens), bring that turn's start to the top of the
+  // screen so the answer is read from its beginning; the stream doesn't drag the page down.
+  const lastTurnId = turns[turns.length - 1]?.q.id;
   useLayoutEffect(() => {
-    if (followRef.current && !empty) toBottom();
-  }, [messages, empty]);
+    if (!lastTurnId || loading) return;
+    document.getElementById(`turn-${lastTurnId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [lastTurnId, loading]);
 
   const submit = (text: string, opts?: { deep?: boolean }) => {
     if (disabled || busy || !text.trim()) return;
@@ -259,7 +263,7 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
           <p className="text-sm text-muted-foreground">This chat has no messages yet. Ask something below.</p>
         )}
         {turns.map((t, i) => (
-          <div key={t.q.id} className={i > 0 ? "border-t pt-10" : undefined}>
+          <div key={t.q.id} id={`turn-${t.q.id}`} className={i > 0 ? "scroll-mt-20 border-t pt-10" : "scroll-mt-20"}>
             <Turn question={t.q.content} m={t.a} onCite={setSource} />
           </div>
         ))}

@@ -83,10 +83,12 @@ function SourceCards({ citations, onOpen }: { citations: Citation[]; onOpen: (c:
   });
   if (!unique.length) return null;
   return (
-    <section aria-label="Sources">
-      <SectionLabel icon={Layers}>
+    <details open className="group/src" aria-label="Sources">
+      <summary className="cursor-pointer list-none rounded-md outline-none select-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-4 transition-transform group-open/src:rotate-90" aria-hidden />
+        <Layers className="size-4 text-primary" aria-hidden />
         Sources <span className="text-xs font-normal">({unique.length})</span>
-      </SectionLabel>
+      </summary>
       <ul className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]">
         {unique.map((c, i) => (
           <li key={c.label} className="w-52 shrink-0 snap-start sm:w-56">
@@ -111,7 +113,7 @@ function SourceCards({ citations, onOpen }: { citations: Citation[]; onOpen: (c:
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }
 
@@ -167,11 +169,12 @@ function Actions({ m }: { m: Message }) {
  *  document-backed answer; the server drops any definition containing a number. */
 function KeyTerms({ terms }: { terms: { term: string; definition: string }[] }) {
   return (
-    <section aria-label="Key terms" className="mt-5 rounded-xl border bg-muted/30 p-4">
-      <h4 className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
-        <BookOpen className="size-4 text-primary" aria-hidden /> Key terms
+    <details className="group/terms mt-5 rounded-xl border bg-muted/30 p-4" aria-label="Key terms">
+      <summary className="cursor-pointer list-none rounded-md outline-none select-none focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
+        <ChevronRight className="size-4 transition-transform group-open/terms:rotate-90" aria-hidden />
+        <BookOpen className="size-4 text-primary" aria-hidden /> Key terms ({terms.length})
         <span className="text-xs font-normal text-muted-foreground">General definitions, not from your documents</span>
-      </h4>
+      </summary>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">
         {terms.map((t) => (
           <div key={t.term}>
@@ -180,7 +183,7 @@ function KeyTerms({ terms }: { terms: { term: string; definition: string }[] }) 
           </div>
         ))}
       </dl>
-    </section>
+    </details>
   );
 }
 
@@ -217,7 +220,7 @@ export function Turn({ question, m, onCite }: { question: string; m?: Message; o
 
   return (
     <article className="scroll-mt-20">
-      <h2 className="text-2xl leading-tight font-semibold tracking-tight wrap-break-word sm:text-[1.75rem]">{question}</h2>
+      <h2 className="text-lg leading-snug font-semibold tracking-tight wrap-break-word sm:text-xl">{question}</h2>
       {m?.deep && (
         <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-xs font-medium text-accent-foreground">
           <Telescope className="size-3.5" aria-hidden /> Deep research
