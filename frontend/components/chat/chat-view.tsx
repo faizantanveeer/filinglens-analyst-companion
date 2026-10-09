@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, Calculator, Download, FileSearch, FileText, KeyRound, Plus, ShieldAlert, TrendingUp, Upload } from "lucide-react";
 
+import { useAuth } from "@/components/auth/auth-provider";
 import { useChat } from "@/components/chat/chat-provider";
 import { Composer } from "@/components/chat/composer";
 import { SourcePanel } from "@/components/chat/source-panel";
@@ -78,6 +79,15 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
   }, []);
   const readyDocs = docs?.filter((d) => d.status === "ready") ?? null;
   const { ready, settings, update, tokensUsed, hasSearchKey } = useSettings();
+  const { me, openAuth } = useAuth();
+  const creditsHint = me?.is_guest ? (
+    <p className="mt-2 text-center text-xs text-muted-foreground">
+      {me.credits.remaining} of {me.credits.limit} free questions left ·{" "}
+      <button type="button" onClick={() => openAuth("signup")} className="font-medium text-primary underline-offset-4 hover:underline">
+        Create a free account
+      </button>
+    </p>
+  ) : null;
   const [draft, setDraft] = useState("");
   const [source, setSource] = useState<Citation | null>(null);
   const [showJump, setShowJump] = useState(false);
@@ -205,6 +215,7 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
           <div>
             {notices}
             {composer("hero")}
+            {creditsHint}
           </div>
           <ul className="grid gap-2 sm:grid-cols-2" aria-label="Example questions">
             {STARTERS.map(({ icon: Icon, label, q, text, deep: starterDeep }) => (
@@ -290,6 +301,7 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
         )}
         {notices}
         {composer("dock")}
+        {creditsHint}
         {settings.token_budget > 0 && (
           <p className="mt-2 hidden text-center text-xs text-muted-foreground sm:block">
             {tokensUsed.toLocaleString()} / {settings.token_budget.toLocaleString()} tokens this session

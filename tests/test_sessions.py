@@ -12,8 +12,11 @@ from backend.app.pipeline import answer, calculator, chart, rewrite, router
 from backend.app.pipeline import deep as deep_mod
 
 client = TestClient(main.app)
-A = {"X-Client-Id": "client-aaaaaaaa"}
-B = {"X-Client-Id": "client-bbbbbbbb"}
+from conftest import user_headers
+
+A = user_headers(client, "alice@example.com")
+B = user_headers(client, "bob@example.com")
+A_ID = client.get("/auth/me", headers=A).json()["id"]
 CFG = LLMConfig("openai", "s", "l", api_key="sk-test-1234567890abcdef")
 
 
@@ -27,13 +30,13 @@ def test_sessions_are_scoped_to_their_owner():
     assert client.patch(f"/sessions/{sid}", json={"title": "x"}, headers=B).status_code == 404
     assert client.delete(f"/sessions/{sid}", headers=B).status_code == 404
     assert all(s["id"] != sid for s in client.get("/sessions", headers=B).json())
-    assert client.get("/sessions", headers={"X-Client-Id": "bad id!"}).status_code == 400
-    assert client.get("/sessions").status_code == 400
+    assert client.get("/sessions", headers={"Authorization": "Bearer not-a-real-token-123456789"}).status_code == 401
+    assert client.get("/sessions").status_code == 401
 
 
 def test_rename_search_and_delete_cascades():
     sid = client.post("/sessions", headers=A).json()["id"]
-    sessions.record_turn(A["X-Client-Id"], sid, "What was the BNSF operating ratio?", "It was 69.5% [C1].", {"answer_type": "answer"})
+    sessions.record_turn(A_ID, sid, "What was the BNSF operating ratio?", "It was 69.5% [C1].", {"answer_type": "answer"})
     assert client.get(f"/sessions/{sid}", headers=A).json()["title"] == "What was the BNSF operating ratio?"  # auto-titled
     assert client.patch(f"/sessions/{sid}", json={"title": "  Rail   deep dive "}, headers=A).status_code == 200
     hits = client.get("/sessions", params={"q": "operating ratio"}, headers=A).json()
@@ -42,7 +45,7 @@ def test_rename_search_and_delete_cascades():
     assert client.get("/sessions", params={"q": "9_5"}, headers=A).json() == []  # "_" is literal, so "69.5" doesn't match
     assert client.get("/sessions", params={"q": "69.5%"}, headers=A).json()[0]["id"] == sid  # "%" matches itself
     assert client.delete(f"/sessions/{sid}", headers=A).status_code == 204
-    assert sessions.messages(A["X-Client-Id"], sid) is None
+    assert sessions.messages(A_ID, sid) is None
     from backend.app.db import tx
 
     with tx() as c:  # messages went with the session
@@ -83,7 +86,14 @@ def test_long_session_context_stays_bounded(monkeypatch):
 
 @pytest.fixture(scope="module", autouse=True)
 def docs():
+    from backend.app import documents
+    from backend.app.db import tx
+
     index_chunks([Chunk("s:1", "s", 5, "", "Revenues in 2023 were $364,482 million.")])
+    if not documents.get("s"):  # a public, ready document (like the bundled sample)
+        documents.register("s", "sample.pdf", "hash-s", "pdf")
+        with tx() as c:
+            c.execute("UPDATE documents SET status = 'ready', protected = 1 WHERE id = 's'")
 
 
 def fake_pipeline(monkeypatch, captured):
@@ -145,7 +155,7 @@ def test_turns_are_saved_and_history_comes_from_the_server(monkeypatch):
 def test_memory_is_opt_in_isolated_and_style_only(monkeypatch):
     captured = {}
     fake_pipeline(monkeypatch, captured)
-    owner = {"X-Client-Id": "client-memory-01"}
+    owner = user_headers(client, "memory-owner@example.com")
     s1 = client.post("/sessions", headers=owner).json()["id"]
 
     ask(s1, "What were revenues in 2023?", owner, use_memory=False)

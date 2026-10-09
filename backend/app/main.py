@@ -8,11 +8,12 @@ import uuid
 
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
-from . import documents
+from . import auth, documents
+from .auth import current_user
 from . import memory as user_memory
 from . import sessions
 from .config import settings
@@ -33,6 +34,7 @@ from .schemas import (
     LLMSettings,
     RenameRequest,
     RetrieveRequest,
+    Credentials,
     UploadComplete,
     UploadStart,
     ValidateRequest,
@@ -56,7 +58,7 @@ app.add_middleware(
     allow_origin_regex=settings.frontend_origin_regex or None,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "X-LLM-Key", "X-LLM-Fallback-Key", "X-Search-Key", "X-Client-Id"],
+    allow_headers=["Content-Type", "X-LLM-Key", "X-LLM-Fallback-Key", "X-Search-Key", "Authorization"],
 )
 
 
@@ -79,27 +81,99 @@ def llm_config(s: LLMSettings, key: str | None, fallback_key: str | None) -> LLM
 
 
 log = logging.getLogger(__name__)
-CLIENT_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
-def owner_of(x_client_id: str | None, required: bool = True) -> str | None:
-    """Sessions and memories belong to an anonymous per-browser id (no login in this app).
-
-    Why: without it, everyone using a shared deployment would see each other's chats.
-    It's not authentication. Anyone holding the id can read its sessions, so it's only
-    as private as the browser that generated it.
-    """
-    if x_client_id and CLIENT_ID.match(x_client_id):
-        return x_client_id
-    if required:
-        raise HTTPException(400, "Missing or invalid X-Client-Id header.")
-    return None
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    if request.url.path.startswith(("/auth", "/sessions", "/memories", "/admin")):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     """Liveness check used by the UI status badge and Docker healthchecks."""
     return {"status": "ok"}
+
+
+# ---------- Auth ----------
+
+
+def _me(user: dict) -> dict:
+    return {
+        "id": user["id"],
+        "email": user.get("email"),
+        "role": user["role"],
+        "is_guest": user["role"] == "guest",
+        "credits": auth.credits(user),
+        "limits": auth.limits(user),
+        "documents": documents.count_owned(user["id"]),
+    }
+
+
+@app.post("/auth/guest", status_code=201)
+def auth_guest(request: Request):
+    """Start an anonymous trial session (no account needed)."""
+    user = auth.create_guest(auth.client_ip(request))
+    return {"token": auth.issue_session(user["id"], guest=True), "user": _me(user)}
+
+
+@app.post("/auth/signup", status_code=201)
+def auth_signup(body: Credentials, authorization: str | None = Header(default=None)):
+    """Create an account. A current guest session is upgraded in place, keeping its documents and chats."""
+    guest = auth.optional_user(authorization)
+    user = auth.signup(body.email, body.password, guest)
+    return {"token": auth.issue_session(user["id"], guest=False), "user": _me(user)}
+
+
+@app.post("/auth/login")
+def auth_login(body: Credentials, request: Request, authorization: str | None = Header(default=None)):
+    """Log in. Any guest data from this browser is merged into the account."""
+    guest = auth.optional_user(authorization)
+    user = auth.login(body.email, body.password, auth.client_ip(request), guest)
+    return {"token": auth.issue_session(user["id"], guest=False), "user": _me(auth.get_user(user["id"]))}
+
+
+@app.post("/auth/logout", status_code=204)
+def auth_logout(authorization: str | None = Header(default=None)):
+    token = auth._bearer(authorization)
+    if token:
+        auth.revoke_session(token)
+
+
+@app.get("/auth/me")
+def auth_me(user: dict = Depends(current_user)):
+    return _me(user)
+
+
+# ---------- Admin (role: admin) ----------
+
+
+@app.get("/admin/users")
+def admin_users(user: dict = Depends(current_user)):
+    auth.require_role(user, "admin")
+    from .db import tx
+
+    with tx() as c:
+        rows = c.execute(
+            "SELECT u.id, u.email, u.role, u.created_at, u.questions_used, "
+            "(SELECT COUNT(*) FROM documents d WHERE d.owner_id = u.id) AS documents "
+            "FROM users u WHERE u.role <> 'guest' ORDER BY u.created_at DESC LIMIT 500"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/admin/users/{uid}/reset-credits", status_code=204)
+def admin_reset_credits(uid: str, user: dict = Depends(current_user)):
+    auth.require_role(user, "admin")
+    from .db import tx
+
+    with tx() as c:
+        c.execute("UPDATE users SET questions_used = 0 WHERE id = ?", (uid,))
 
 
 # ---------- Documents ----------
@@ -131,12 +205,22 @@ def _run_ingest(background: BackgroundTasks, doc_id: str) -> dict:
     return documents.get(doc_id)
 
 
-def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, filetype: str, source_url: str | None = None) -> dict:
+def _check_upload_allowed(user: dict, size: int) -> None:
+    lim = auth.limits(user)
+    if user["role"] != "admin" and documents.count_owned(user["id"]) >= lim["documents"]:
+        if user["role"] == "guest":
+            raise HTTPException(402, f"Free trial includes {lim['documents']} document. Create a free account to upload more.")
+        raise HTTPException(403, f"You've reached the limit of {lim['documents']} documents. Delete one to upload another.")
+    if size > lim["upload_mb"] * 1024 * 1024:
+        raise HTTPException(413, f"File is larger than {lim['upload_mb']} MB.")
+
+
+def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, filetype: str, user: dict, source_url: str | None = None) -> dict:
     digest = documents.sha256(data)
-    if existing := documents.find_by_hash(digest):
-        return existing  # same file already uploaded: don't index it twice
+    if existing := documents.find_by_hash(digest, user["id"]):
+        return existing  # same file already uploaded by this user: don't index it twice
     doc_id = uuid.uuid4().hex[:12]
-    doc = documents.register(doc_id, filename[:200], digest, filetype, source_url)
+    doc = documents.register(doc_id, filename[:200], digest, filetype, source_url, owner_id=user["id"])
     documents.save_file(doc_id, filetype, data)
     return _run_ingest(background, doc_id) or doc
 
@@ -145,22 +229,40 @@ def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, fi
 # with small request-body limits (Vercel: 4.5 MB). Local mode uses the same flow.
 
 
+def _own_upload(upload_id: str, user: dict) -> None:
+    """Pieces may only be added to (or completed from) an upload this user started."""
+    from .db import tx
+
+    if not re.fullmatch(r"up[0-9a-f]{10}", upload_id):
+        raise HTTPException(400, "Bad upload id.")
+    with tx() as c:
+        row = c.execute("SELECT owner_id FROM uploads WHERE upload_id = ?", (upload_id,)).fetchone()
+    if not row or row["owner_id"] != user["id"]:
+        raise HTTPException(404, "Upload not found.")
+
+
 @app.post("/uploads", status_code=201)
-def start_upload(body: UploadStart):
+def start_upload(body: UploadStart, user: dict = Depends(current_user)):
+    from datetime import datetime, timezone
+
+    from .db import tx
+
     ftype = filetype_for(body.filename)
     if not ftype:
         raise HTTPException(415, f"Unsupported file type. Use one of: {', '.join(sorted(SUPPORTED))}.")
-    if body.size > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
+    _check_upload_allowed(user, body.size)
     upload_id = "up" + uuid.uuid4().hex[:10]
     documents.drop_pieces(upload_id)
+    with tx() as c:
+        c.execute("INSERT INTO uploads (upload_id, owner_id, created_at) VALUES (?, ?, ?)", (upload_id, user["id"], datetime.now(timezone.utc).isoformat()))
     return {"upload_id": upload_id, "chunk_size": documents.PIECE, "filetype": ftype}
 
 
 @app.put("/uploads/{upload_id}/{seq}", status_code=204)
-async def upload_piece(upload_id: str, seq: int, request: Request):
-    if not re.fullmatch(r"up[0-9a-f]{10}", upload_id) or not 0 <= seq < 64:
-        raise HTTPException(400, "Bad upload id or piece number.")
+async def upload_piece(upload_id: str, seq: int, request: Request, user: dict = Depends(current_user)):
+    _own_upload(upload_id, user)
+    if not 0 <= seq < 64:
+        raise HTTPException(400, "Bad piece number.")
     data = await request.body()
     if not data or len(data) > documents.PIECE:
         raise HTTPException(413, "Each piece must be between 1 byte and 4 MB.")
@@ -168,23 +270,25 @@ async def upload_piece(upload_id: str, seq: int, request: Request):
 
 
 @app.post("/uploads/{upload_id}/complete", response_model=DocumentOut, status_code=202)
-def complete_upload(upload_id: str, body: UploadComplete, background: BackgroundTasks):
-    if not re.fullmatch(r"up[0-9a-f]{10}", upload_id):
-        raise HTTPException(400, "Bad upload id.")
+def complete_upload(upload_id: str, body: UploadComplete, background: BackgroundTasks, user: dict = Depends(current_user)):
+    from .db import tx
+
+    _own_upload(upload_id, user)
     data = documents.read_pieces(upload_id)
     documents.drop_pieces(upload_id)
+    with tx() as c:
+        c.execute("DELETE FROM uploads WHERE upload_id = ?", (upload_id,))
     ftype = filetype_for(body.filename)
     if not data:
         raise HTTPException(400, "No data received.")
     if not ftype or not _looks_like(ftype, data):
         raise HTTPException(415, f"The file content doesn't look like {(ftype or 'a supported type').upper()}.")
-    if len(data) > settings.max_upload_mb * 1024 * 1024:
-        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
-    return _store_and_index(background, data, body.filename, ftype)
+    _check_upload_allowed(user, len(data))
+    return _store_and_index(background, data, body.filename, ftype, user)
 
 
 @app.post("/documents", response_model=DocumentOut, status_code=202)
-async def upload_document(background: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_document(background: BackgroundTasks, file: UploadFile = File(...), user: dict = Depends(current_user)):
     """Accept a PDF, HTML (e.g. an EDGAR filing), TXT/MD or EPUB, then index it in the background.
     The UI polls GET /documents for live progress."""
     data = await file.read()
@@ -196,23 +300,25 @@ async def upload_document(background: BackgroundTasks, file: UploadFile = File(.
         raise HTTPException(415, f"Unsupported file type. Use one of: {', '.join(sorted(SUPPORTED))}.")
     if not _looks_like(ftype, data):
         raise HTTPException(415, f"The file content doesn't look like {ftype.upper()}.")
-    return _store_and_index(background, data, name, ftype)
+    _check_upload_allowed(user, len(data))
+    return _store_and_index(background, data, name, ftype, user)
 
 
 @app.post("/documents/edgar", response_model=DocumentOut, status_code=202)
-def import_from_edgar(body: EdgarImportRequest, background: BackgroundTasks):
+def import_from_edgar(body: EdgarImportRequest, background: BackgroundTasks, user: dict = Depends(current_user)):
+    _check_upload_allowed(user, 0)
     """Fetch the latest filing of a form type for a ticker from SEC EDGAR and index it."""
     try:
         filing = edgar.latest_filing(body.ticker, body.form)
     except edgar.EdgarError as exc:
         raise HTTPException(502, str(exc)) from None
-    return _store_and_index(background, filing["content"], filing["filename"], "html", filing["url"])
+    return _store_and_index(background, filing["content"], filing["filename"], "html", user, filing["url"])
 
 
 @app.get("/documents/{doc_id}/pages/{page}.png")
-def page_image(doc_id: str, page: int, highlight: str = Query(default="", max_length=4000)):
+def page_image(doc_id: str, page: int, highlight: str = Query(default="", max_length=4000), user: dict = Depends(current_user)):
     """Rendered page with the cited passage highlighted. Rendered once, then served from disk."""
-    if not documents.get(doc_id):
+    if not documents.can_read(documents.get(doc_id), user):
         raise HTTPException(404, "Document not found.")
     try:
         png = render_page(doc_id, page, highlight)
@@ -222,15 +328,17 @@ def page_image(doc_id: str, page: int, highlight: str = Query(default="", max_le
 
 
 @app.get("/documents", response_model=list[DocumentOut])
-def list_documents():
-    return documents.list_all()
+def list_documents(user: dict = Depends(current_user)):
+    return documents.list_for(user)
 
 
 @app.delete("/documents/{doc_id}", status_code=204)
-def delete_document(doc_id: str):
+def delete_document(doc_id: str, user: dict = Depends(current_user)):
     doc = documents.get(doc_id)
-    if doc and doc.get("protected"):
-        raise HTTPException(403, "The sample document can't be deleted.")
+    if not documents.can_read(doc, user):
+        raise HTTPException(404, "Document not found.")
+    if not documents.can_delete(doc, user):
+        raise HTTPException(403, "The sample document can't be deleted." if doc.get("protected") else "You can't delete this document.")
     if not documents.delete(doc_id):
         raise HTTPException(404, "Document not found.")
 
@@ -239,7 +347,8 @@ def delete_document(doc_id: str):
 
 
 @app.post("/retrieve")
-def retrieve(req: RetrieveRequest):
+def retrieve(req: RetrieveRequest, user: dict = Depends(current_user)):
+    auth.require_role(user, "admin")  # debug view of raw chunks: admins only
     """Debug view of retrieval: fused candidates reranked, with every score."""
     ranked = rerank(req.query, hybrid_search(req.query, req.doc_ids), req.top_k)
     return {
@@ -274,7 +383,7 @@ def chat(
     x_llm_key: str | None = Header(default=None),
     x_llm_fallback_key: str | None = Header(default=None),
     x_search_key: str | None = Header(default=None),
-    x_client_id: str | None = Header(default=None),
+    user: dict = Depends(current_user),
 ):
     """Stream typed events: step, token, chart, citations, suggestions, done, error (server-sent events).
 
@@ -282,10 +391,16 @@ def chat(
     completed turn is saved. Summary folding and memory extraction run after the stream ends.
     """
     cfg = llm_config(req.settings, x_llm_key, x_llm_fallback_key)
-    owner = owner_of(x_client_id, required=bool(req.session_id) or req.settings.use_memory)
+    owner = user["id"]
     if req.session_id and not sessions.get(owner, req.session_id):
         raise HTTPException(404, "Chat session not found.")
-    convo = sessions.conversation(owner, req.session_id) if owner else None
+    # Only ever search documents this user may read: their own plus the public sample.
+    allowed = documents.ready_ids_for(user)
+    req.doc_ids = [d for d in (req.doc_ids or allowed) if d in set(allowed)]
+    if not req.doc_ids:
+        raise HTTPException(400, "No documents available. Upload one on the Documents page.")
+    auth.charge_question(user)  # 402 when the trial / monthly allowance is used up
+    convo = sessions.conversation(owner, req.session_id)
 
     def stream():
         tokens, payload, steps, done = [], {}, [], None
@@ -298,6 +413,8 @@ def chat(
                 payload[event] = data[event]
             elif event == "done":
                 done = data
+            elif event == "error":
+                auth.refund_question(user)  # failed answers don't cost a credit
             yield sse(event, data)
         if done and owner and req.session_id:
             payload.update(answer_type=done["answer_type"], meta=done, steps=steps, deep=req.deep)
@@ -330,18 +447,18 @@ def after_turn(owner: str, req: ChatRequest, cfg: LLMConfig) -> None:
 
 
 @app.get("/sessions")
-def list_sessions(q: str = "", x_client_id: str | None = Header(default=None)):
-    return sessions.list_sessions(owner_of(x_client_id), q[:200])
+def list_sessions(q: str = "", user: dict = Depends(current_user)):
+    return sessions.list_sessions(user["id"], q[:200])
 
 
 @app.post("/sessions", status_code=201)
-def create_session(x_client_id: str | None = Header(default=None)):
-    return sessions.create(owner_of(x_client_id))
+def create_session(user: dict = Depends(current_user)):
+    return sessions.create(user["id"])
 
 
 @app.get("/sessions/{sid}")
-def get_session(sid: str, x_client_id: str | None = Header(default=None)):
-    owner = owner_of(x_client_id)
+def get_session(sid: str, user: dict = Depends(current_user)):
+    owner = user["id"]
     meta, msgs = sessions.get(owner, sid), sessions.messages(owner, sid)
     if meta is None or msgs is None:
         raise HTTPException(404, "Chat session not found.")
@@ -349,40 +466,40 @@ def get_session(sid: str, x_client_id: str | None = Header(default=None)):
 
 
 @app.patch("/sessions/{sid}")
-def rename_session(sid: str, body: RenameRequest, x_client_id: str | None = Header(default=None)):
-    if not sessions.rename(owner_of(x_client_id), sid, body.title):
+def rename_session(sid: str, body: RenameRequest, user: dict = Depends(current_user)):
+    if not sessions.rename(user["id"], sid, body.title):
         raise HTTPException(404, "Chat session not found.")
     return {"ok": True}
 
 
 @app.delete("/sessions/{sid}", status_code=204)
-def delete_session(sid: str, x_client_id: str | None = Header(default=None)):
-    if not sessions.delete(owner_of(x_client_id), sid):
+def delete_session(sid: str, user: dict = Depends(current_user)):
+    if not sessions.delete(user["id"], sid):
         raise HTTPException(404, "Chat session not found.")
 
 
 @app.delete("/sessions")
-def delete_all_sessions(x_client_id: str | None = Header(default=None)):
-    return {"deleted": sessions.delete_all(owner_of(x_client_id))}
+def delete_all_sessions(user: dict = Depends(current_user)):
+    return {"deleted": sessions.delete_all(user["id"])}
 
 
 # ---------- Cross-chat memory ----------
 
 
 @app.get("/memories")
-def list_memories(x_client_id: str | None = Header(default=None)):
-    return user_memory.list_memories(owner_of(x_client_id))
+def list_memories(user: dict = Depends(current_user)):
+    return user_memory.list_memories(user["id"])
 
 
 @app.delete("/memories/{mid}", status_code=204)
-def delete_memory(mid: int, x_client_id: str | None = Header(default=None)):
-    if not user_memory.delete(owner_of(x_client_id), mid):
+def delete_memory(mid: int, user: dict = Depends(current_user)):
+    if not user_memory.delete(user["id"], mid):
         raise HTTPException(404, "Memory not found.")
 
 
 @app.delete("/memories")
-def clear_memories(x_client_id: str | None = Header(default=None)):
-    return {"deleted": user_memory.clear(owner_of(x_client_id))}
+def clear_memories(user: dict = Depends(current_user)):
+    return {"deleted": user_memory.clear(user["id"])}
 
 
 # ---------- Settings & insights ----------
@@ -391,6 +508,7 @@ def clear_memories(x_client_id: str | None = Header(default=None)):
 @app.post("/settings/validate")
 def validate_settings(
     req: ValidateRequest,
+    user: dict = Depends(current_user),
     x_llm_key: str | None = Header(default=None),
     x_llm_fallback_key: str | None = Header(default=None),
 ):
@@ -404,7 +522,7 @@ def validate_settings(
 
 
 @app.post("/settings/validate-search")
-def validate_search(x_search_key: str | None = Header(default=None)):
+def validate_search(x_search_key: str | None = Header(default=None), user: dict = Depends(current_user)):
     """One-result Tavily search so the user learns now whether the web-search key works."""
     if not x_search_key:
         raise HTTPException(401, "Missing web search key. Add one in Settings.")
@@ -416,6 +534,9 @@ def validate_search(x_search_key: str | None = Header(default=None)):
 
 
 @app.get("/insights")
-def insights(x_client_id: str | None = Header(default=None)):
-    """Only this browser's requests: on a shared deployment, visitors must not see each other's questions."""
-    return trace_insights(owner=owner_of(x_client_id, required=False) or "-")
+def insights(user: dict = Depends(current_user), scope: str = "me"):
+    """Your own requests only; admins can pass scope=all for the whole deployment."""
+    if scope == "all":
+        auth.require_role(user, "admin")
+        return trace_insights()
+    return trace_insights(owner=user["id"])

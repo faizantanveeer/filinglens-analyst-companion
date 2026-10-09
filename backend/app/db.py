@@ -29,6 +29,37 @@ CREATE TABLE IF NOT EXISTS documents (
     error TEXT,
     created_at TEXT NOT NULL
 );
+-- Accounts. Guests have no email; signing up fills it in (same id, so data stays linked).
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE,
+    password_hash TEXT,
+    role TEXT NOT NULL,            -- guest | user | admin
+    created_at TEXT NOT NULL,
+    created_ip TEXT,
+    questions_used INTEGER NOT NULL DEFAULT 0,
+    period TEXT                    -- YYYY-MM the question count belongs to (monthly reset for users)
+);
+-- Login sessions: only the SHA-256 of each bearer token is stored.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
+-- Failed-login log for rate limiting (keys: email:<addr>, ip:<addr>).
+CREATE TABLE IF NOT EXISTS auth_attempts (
+    key TEXT NOT NULL,
+    at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_attempts_key ON auth_attempts(key, at);
+-- In-progress chunked uploads and who started them.
+CREATE TABLE IF NOT EXISTS uploads (
+    upload_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 -- Raw uploaded files in cloud mode (no persistent disk), stored as ordered pieces.
 CREATE TABLE IF NOT EXISTS files (
     doc_id TEXT NOT NULL,
@@ -107,6 +138,7 @@ MIGRATIONS = {
         "stage": "TEXT",  # e.g. "Parsing 48/152 pages"
         "source_url": "TEXT",  # where an imported filing came from (EDGAR)
         "protected": "INTEGER DEFAULT 0",  # the bundled sample in the public demo; can't be deleted
+        "owner_id": "TEXT",  # NULL only for the protected public sample
     },
     "traces": {
         "owner": "TEXT",  # X-Client-Id, so Insights only shows a visitor their own requests
@@ -214,6 +246,11 @@ def _connect():
 
 
 _conn = _connect()
+
+# Documents uploaded before accounts existed have no owner. Never let them become public:
+# park them under a placeholder owner that only admins can see.
+_conn.execute("UPDATE documents SET owner_id = 'legacy' WHERE owner_id IS NULL AND (protected IS NULL OR protected = 0)")
+_conn.commit()
 
 
 @contextmanager
