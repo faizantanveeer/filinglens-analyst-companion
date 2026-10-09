@@ -40,9 +40,8 @@ def seed(pdf: Path) -> dict:
     doc_id = "sample"
     if existing:
         documents.delete(existing["id"])
-    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     documents.register(doc_id, SAMPLE_NAME, digest, "pdf")
-    documents.file_path(doc_id, "pdf").write_bytes(data)
+    documents.save_file(doc_id, "pdf", data)
     documents.ingest(doc_id)
     with tx() as c:
         c.execute("UPDATE documents SET protected = 1 WHERE id = ?", (doc_id,))

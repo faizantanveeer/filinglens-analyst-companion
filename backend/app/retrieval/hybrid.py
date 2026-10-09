@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from qdrant_client import models
 
 from ..config import settings
-from ..embeddings import embed_query, sparse_model
+from ..embeddings import embed_query, sparse_query
 from ..ingest.indexer import COLLECTION, client, qdrant_lock
 
 
@@ -50,14 +50,14 @@ def hybrid_search(query: str, doc_ids: list[str] | None = None) -> list[Candidat
     """
     n = settings.candidates_per_retriever
     flt = _doc_filter(doc_ids)
-    sparse_q = next(iter(sparse_model().query_embed(query)))
+    sparse_idx, sparse_val = sparse_query(query)
     dense_q = embed_query(query)
     qc = client()
     with qdrant_lock:
         dense_hits = qc.query_points(COLLECTION, query=dense_q, using="dense", limit=n, query_filter=flt).points
         sparse_hits = qc.query_points(
             COLLECTION,
-            query=models.SparseVector(indices=sparse_q.indices.tolist(), values=sparse_q.values.tolist()),
+            query=models.SparseVector(indices=sparse_idx, values=sparse_val),
             using="sparse",
             limit=n,
             query_filter=flt,

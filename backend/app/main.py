@@ -8,7 +8,7 @@ import uuid
 
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
@@ -26,7 +26,17 @@ from .pipeline import orchestrator
 from .pipeline.web_search import WebSearchError, tavily_search
 from .retrieval.hybrid import hybrid_search
 from .retrieval.rerank import passes_threshold, rerank
-from .schemas import ChatRequest, DocumentOut, EdgarImportRequest, LLMSettings, RenameRequest, RetrieveRequest, ValidateRequest
+from .schemas import (
+    ChatRequest,
+    DocumentOut,
+    EdgarImportRequest,
+    LLMSettings,
+    RenameRequest,
+    RetrieveRequest,
+    UploadComplete,
+    UploadStart,
+    ValidateRequest,
+)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -111,16 +121,66 @@ def _looks_like(filetype: str, data: bytes) -> bool:
         return False
 
 
+def _run_ingest(background: BackgroundTasks, doc_id: str) -> dict:
+    """Local: index in the background (the UI polls progress). Serverless: index inside this request,
+    since work after the response may be frozen. It fits Vercel's 300 s limit for ~150-page reports."""
+    if settings.serverless:
+        documents.ingest(doc_id)
+    else:
+        background.add_task(documents.ingest, doc_id)
+    return documents.get(doc_id)
+
+
 def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, filetype: str, source_url: str | None = None) -> dict:
     digest = documents.sha256(data)
     if existing := documents.find_by_hash(digest):
         return existing  # same file already uploaded: don't index it twice
     doc_id = uuid.uuid4().hex[:12]
-    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-    documents.file_path(doc_id, filetype).write_bytes(data)
     doc = documents.register(doc_id, filename[:200], digest, filetype, source_url)
-    background.add_task(documents.ingest, doc_id)
-    return doc
+    documents.save_file(doc_id, filetype, data)
+    return _run_ingest(background, doc_id) or doc
+
+
+# Chunked uploads: the browser sends files in <= 4 MB pieces, so uploads work on serverless hosts
+# with small request-body limits (Vercel: 4.5 MB). Local mode uses the same flow.
+
+
+@app.post("/uploads", status_code=201)
+def start_upload(body: UploadStart):
+    ftype = filetype_for(body.filename)
+    if not ftype:
+        raise HTTPException(415, f"Unsupported file type. Use one of: {', '.join(sorted(SUPPORTED))}.")
+    if body.size > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
+    upload_id = "up" + uuid.uuid4().hex[:10]
+    documents.drop_pieces(upload_id)
+    return {"upload_id": upload_id, "chunk_size": documents.PIECE, "filetype": ftype}
+
+
+@app.put("/uploads/{upload_id}/{seq}", status_code=204)
+async def upload_piece(upload_id: str, seq: int, request: Request):
+    if not re.fullmatch(r"up[0-9a-f]{10}", upload_id) or not 0 <= seq < 64:
+        raise HTTPException(400, "Bad upload id or piece number.")
+    data = await request.body()
+    if not data or len(data) > documents.PIECE:
+        raise HTTPException(413, "Each piece must be between 1 byte and 4 MB.")
+    documents.add_piece(upload_id, seq, data)
+
+
+@app.post("/uploads/{upload_id}/complete", response_model=DocumentOut, status_code=202)
+def complete_upload(upload_id: str, body: UploadComplete, background: BackgroundTasks):
+    if not re.fullmatch(r"up[0-9a-f]{10}", upload_id):
+        raise HTTPException(400, "Bad upload id.")
+    data = documents.read_pieces(upload_id)
+    documents.drop_pieces(upload_id)
+    ftype = filetype_for(body.filename)
+    if not data:
+        raise HTTPException(400, "No data received.")
+    if not ftype or not _looks_like(ftype, data):
+        raise HTTPException(415, f"The file content doesn't look like {(ftype or 'a supported type').upper()}.")
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
+    return _store_and_index(background, data, body.filename, ftype)
 
 
 @app.post("/documents", response_model=DocumentOut, status_code=202)
@@ -242,7 +302,10 @@ def chat(
         if done and owner and req.session_id:
             payload.update(answer_type=done["answer_type"], meta=done, steps=steps, deep=req.deep)
             sessions.record_turn(owner, req.session_id, req.question.strip(), "".join(tokens), payload)
-            threading.Thread(target=after_turn, args=(owner, req, cfg), daemon=True).start()
+            if settings.serverless:
+                after_turn(owner, req, cfg)  # the client already has "done"; finish before the function ends
+            else:
+                threading.Thread(target=after_turn, args=(owner, req, cfg), daemon=True).start()
 
     return StreamingResponse(
         stream(),

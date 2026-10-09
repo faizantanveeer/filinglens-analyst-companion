@@ -15,8 +15,8 @@ ENV HOME=/home/user \
     PARSE_WORKERS=2
 WORKDIR /home/user/app
 
-COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+COPY --chown=user requirements.txt requirements-local.txt ./
+RUN pip install --no-cache-dir --user -r requirements-local.txt
 
 COPY --chown=user backend ./backend
 

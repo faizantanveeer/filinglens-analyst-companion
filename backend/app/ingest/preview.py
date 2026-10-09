@@ -29,10 +29,10 @@ def _as_pdf(doc_id: str, ftype: str) -> pymupdf.Document:
     """Highlights are PDF annotations. HTML/TXT/EPUB are laid out and converted to PDF once
     (same pagination as ingestion), cached next to the rendered pages."""
     if ftype == "pdf":
-        return pymupdf.open(documents.file_path(doc_id, "pdf"))
+        return pymupdf.open(documents.local_path(doc_id, "pdf"))
     converted = documents.page_cache_dir(doc_id) / "document.pdf"
     if not converted.exists():
-        with open_document(documents.file_path(doc_id, ftype), ftype) as source:
+        with open_document(documents.local_path(doc_id, ftype), ftype) as source:
             converted.write_bytes(source.convert_to_pdf())
     return pymupdf.open(converted)
 

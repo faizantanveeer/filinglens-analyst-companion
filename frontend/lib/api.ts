@@ -168,25 +168,32 @@ export const api = {
 
   deleteDocument: (id: string) => request<void>(`/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  /** XHR instead of fetch because fetch has no upload-progress events. */
-  uploadDocument(file: File, onProgress: (fraction: number) => void): Promise<DocumentInfo> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_URL}/documents`);
-      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-      xhr.onerror = () => reject(new ApiError(0, "Upload failed: cannot reach the API."));
-      xhr.onload = () => {
-        let body: { detail?: string } | DocumentInfo | null = null;
-        try {
-          body = JSON.parse(xhr.responseText);
-        } catch {}
-        if (xhr.status >= 200 && xhr.status < 300) resolve(body as DocumentInfo);
-        else reject(new ApiError(xhr.status, (body as { detail?: string })?.detail ?? "Upload failed."));
-      };
-      const form = new FormData();
-      form.append("file", file);
-      xhr.send(form);
-    });
+  /**
+   * Chunked upload: start → PUT pieces (≤ 4 MB each) → complete. Small pieces keep every request
+   * under serverless body limits (Vercel: 4.5 MB). "complete" returns once the server has stored the
+   * file; on serverless it also indexes inside that request, so it can take a minute or two.
+   */
+  async uploadDocument(
+    file: File,
+    onProgress: (fraction: number) => void,
+    onStage?: (stage: "uploading" | "indexing") => void,
+  ): Promise<DocumentInfo> {
+    const start = await request<{ upload_id: string; chunk_size: number }>(
+      "/uploads",
+      json({ filename: file.name, size: file.size }),
+    );
+    const size = start.chunk_size;
+    const pieces = Math.max(1, Math.ceil(file.size / size));
+    for (let i = 0; i < pieces; i++) {
+      await send(`/uploads/${start.upload_id}/${i}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file.slice(i * size, (i + 1) * size),
+      });
+      onProgress((i + 1) / pieces);
+    }
+    onStage?.("indexing");
+    return request<DocumentInfo>(`/uploads/${start.upload_id}/complete`, json({ filename: file.name }));
   },
 
   validateSettings: (s: AppSettings) =>

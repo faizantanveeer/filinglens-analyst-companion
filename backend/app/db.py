@@ -1,7 +1,16 @@
-"""SQLite: document metadata, semantic cache rows and request traces. Zero setup, one file."""
+"""Relational storage: documents, files, sessions, memories, cache and traces.
 
+Two backends behind one tiny interface, `tx()` yielding an object with `.execute(sql, params)`:
+- SQLite (local mode): zero setup, one file under DATA_DIR.
+- Postgres (cloud mode, when DATABASE_URL is set): e.g. Neon. Serverless functions have no
+  persistent disk, so state must live in a hosted database.
+SQL is written once in SQLite style ("?" placeholders); the Postgres adapter translates it.
+"""
+
+import re
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 
 from .config import settings
@@ -19,6 +28,13 @@ CREATE TABLE IF NOT EXISTS documents (
     suspicious_chunks INTEGER DEFAULT 0,
     error TEXT,
     created_at TEXT NOT NULL
+);
+-- Raw uploaded files in cloud mode (no persistent disk), stored as ordered pieces.
+CREATE TABLE IF NOT EXISTS files (
+    doc_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    PRIMARY KEY (doc_id, seq)
 );
 CREATE TABLE IF NOT EXISTS cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,20 +99,8 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS memories_owner ON memories(owner);
 """
 
-
-def _connect() -> sqlite3.Connection:
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(settings.sqlite_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")  # deleting a session deletes its messages and summary
-    return conn
-
-
-_conn = _connect()
-_conn.executescript(SCHEMA)
-
-# Lightweight migrations for databases created by earlier versions.
-_MIGRATIONS = {
+# Columns added after the first release (older databases are upgraded in place).
+MIGRATIONS = {
     "documents": {
         "filetype": "TEXT DEFAULT 'pdf'",
         "progress": "REAL DEFAULT 0",  # 0..1 while processing
@@ -108,17 +112,114 @@ _MIGRATIONS = {
         "owner": "TEXT",  # X-Client-Id, so Insights only shows a visitor their own requests
     },
 }
-for _table, _cols in _MIGRATIONS.items():
-    _have = {r["name"] for r in _conn.execute(f"PRAGMA table_info({_table})")}
-    for _col, _ddl in _cols.items():
-        if _col not in _have:
-            _conn.execute(f"ALTER TABLE {_table} ADD COLUMN {_col} {_ddl}")
-_conn.commit()
+
+
+# ---------- Postgres adapter (cloud mode) ----------
+
+
+class _PgCursor:
+    def __init__(self, cur):
+        self._cur = cur
+
+    @property
+    def rowcount(self) -> int:
+        return self._cur.rowcount
+
+    def fetchone(self):
+        return self._cur.fetchone() if self._cur.description else None
+
+    def fetchall(self):
+        return self._cur.fetchall() if self._cur.description else []
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+class _PgConnection:
+    """Speaks the sqlite3 subset this app uses: '?' placeholders, case-insensitive LIKE, dict rows."""
+
+    def __init__(self, url: str):
+        self._url = url
+        self._conn = None
+        self._last_used = 0.0
+
+    def _ensure(self):
+        import psycopg
+        from psycopg.rows import dict_row
+
+        stale = self._conn is not None and time.time() - self._last_used > 120
+        if self._conn is not None and stale:
+            try:  # serverless Postgres (Neon) closes idle connections; ping before reuse
+                self._conn.execute("SELECT 1")
+            except Exception:
+                self._conn = None
+        if self._conn is None or self._conn.closed or self._conn.broken:
+            self._conn = psycopg.connect(self._url, row_factory=dict_row, connect_timeout=15)
+        self._last_used = time.time()
+        return self._conn
+
+    @staticmethod
+    def translate(sql: str) -> str:
+        sql = re.sub(r"\bLIKE\b", "ILIKE", sql)  # SQLite's LIKE is case-insensitive; match that
+        return sql.replace("%", "%%").replace("?", "%s")
+
+    def execute(self, sql: str, params=()):
+        return _PgCursor(self._ensure().execute(self.translate(sql), tuple(params)))
+
+    def commit(self):
+        if self._conn is not None and not self._conn.closed:
+            self._conn.commit()
+
+    def rollback(self):
+        if self._conn is not None and not self._conn.closed:
+            try:
+                self._conn.rollback()
+            except Exception:
+                self._conn = None
+
+
+def _pg_schema(sql: str) -> list[str]:
+    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY").replace(" BLOB ", " BYTEA ")
+    sql = re.sub(r"--[^\n]*", "", sql)
+    return [s.strip() for s in sql.split(";") if s.strip()]
+
+
+# ---------- connection setup ----------
+
+IS_POSTGRES = settings.cloud and bool(settings.database_url)
+
+
+def _connect():
+    if IS_POSTGRES:
+        conn = _PgConnection(settings.database_url)
+        for stmt in _pg_schema(SCHEMA):
+            conn._ensure().execute(stmt)
+        for table, cols in MIGRATIONS.items():
+            for col, ddl in cols.items():
+                conn._ensure().execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}")
+        conn.commit()
+        return conn
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(settings.sqlite_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")  # deleting a session deletes its messages and summary
+    conn.executescript(SCHEMA)
+    for table, cols in MIGRATIONS.items():
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for col, ddl in cols.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    conn.commit()
+    return conn
+
+
+_conn = _connect()
 
 
 @contextmanager
 def tx():
-    """One shared connection guarded by a lock: simple and safe for a single-process app."""
+    """One shared connection guarded by a lock: simple and safe for a single-process app
+    (and for one serverless instance, which handles its requests in one process)."""
     with _lock:
         try:
             yield _conn

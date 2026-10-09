@@ -5,14 +5,28 @@ import re
 import urllib.request
 from dataclasses import dataclass
 
-import litellm
-
 from ..config import settings
 
-# Never let LiteLLM print request details (which can include keys) or phone home.
-litellm.suppress_debug_info = True
-litellm.telemetry = False
-litellm.drop_params = True  # silently drop params a provider doesn't support (e.g. response_format)
+# LiteLLM (local installs) gives one interface plus cost accounting, but it's ~160 MB. The serverless
+# bundle omits it, and calls go through each provider's OpenAI-compatible endpoint with the slim
+# `openai` SDK instead (see _call_openai_compatible). Cost then isn't tracked (reported as 0).
+try:
+    import litellm
+
+    # Never let LiteLLM print request details (which can include keys) or phone home.
+    litellm.suppress_debug_info = True
+    litellm.telemetry = False
+    litellm.drop_params = True  # silently drop params a provider doesn't support (e.g. response_format)
+except ImportError:  # cloud / serverless bundle
+    litellm = None
+
+# OpenAI-compatible endpoints for the slim path.
+COMPAT_BASE_URLS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "anthropic": "https://api.anthropic.com/v1/",
+}
+JSON_MODE_PROVIDERS = {"openai", "azure", "groq", "gemini", "ollama"}  # Anthropic's compat layer ignores it
 
 PROVIDERS = ("openai", "azure", "anthropic", "gemini", "groq", "ollama")
 
@@ -83,6 +97,28 @@ def _chain(tier: str, cfg: LLMConfig) -> list[tuple[str, str | None]]:
     return chain
 
 
+def _call_openai_compatible(model: str, key: str | None, messages: list[dict], cap: int, json_mode: bool, cfg: LLMConfig):
+    """One completion via the `openai` SDK against the provider's OpenAI-compatible API.
+    Returns (text, input_tokens, output_tokens)."""
+    import openai
+
+    provider, name = model.split("/", 1)
+    if provider == "azure":
+        client = openai.AzureOpenAI(api_key=key, azure_endpoint=cfg.azure_endpoint, api_version=cfg.azure_api_version, timeout=60, max_retries=0)
+    elif provider == "ollama":
+        client = openai.OpenAI(api_key="ollama", base_url=f"{settings.ollama_base_url.rstrip('/')}/v1", timeout=60, max_retries=0)
+    else:
+        client = openai.OpenAI(api_key=key, base_url=COMPAT_BASE_URLS.get(provider), timeout=60, max_retries=0)
+    kwargs: dict = {"model": name, "messages": messages}
+    # OpenAI's newer models (gpt-5, o-series) reject max_tokens in favour of max_completion_tokens.
+    kwargs["max_completion_tokens" if provider in ("openai", "azure") else "max_tokens"] = cap
+    if json_mode and provider in JSON_MODE_PROVIDERS:
+        kwargs["response_format"] = {"type": "json_object"}
+    resp = client.chat.completions.create(**kwargs)
+    usage = resp.usage
+    return resp.choices[0].message.content or "", getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0
+
+
 def complete(tier: str, messages: list[dict], cfg: LLMConfig, json_mode: bool = False, max_tokens: int | None = None) -> LLMResult:
     """One chat completion with fallbacks.
 
@@ -108,6 +144,13 @@ def complete(tier: str, messages: list[dict], cfg: LLMConfig, json_mode: bool = 
             kwargs["api_key"] = key
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if litellm is None:
+            try:
+                text, tokens_in, tokens_out = _call_openai_compatible(model, key, messages, cap, json_mode, cfg)
+            except Exception as exc:
+                errors.append(f"{model}: {type(exc).__name__}: {mask(str(exc), cfg.secrets())[:200]}")
+                continue
+            return LLMResult(text=text, model=model, input_tokens=tokens_in, output_tokens=tokens_out, cost=0.0)
         try:
             resp = litellm.completion(**kwargs)
         except Exception as exc:

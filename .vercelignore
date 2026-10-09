@@ -1,0 +1,16 @@
+# The API project deploys only the backend; keep everything else out of the function bundle.
+frontend/
+tests/
+eval/
+docs/
+deploy/
+data/
+.venv/
+**/__pycache__/
+*.pyc
+.env
+.env.*
+Dockerfile.*
+docker-compose.yml
+start.bat
+Makefile
