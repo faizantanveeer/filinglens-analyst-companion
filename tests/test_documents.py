@@ -10,7 +10,10 @@ from backend.app.ingest.chunker import chunk_pages
 from backend.app.ingest.parser import Page, filetype_for, parse_batches
 from backend.app.schemas import AnswerJSON
 
+from conftest import user_headers
+
 client = TestClient(main.app)
+client.headers.update(user_headers(client, "docs-owner@example.com"))
 
 HTML = b"""<!DOCTYPE html><html><body>
 <h1>Acme Corp Annual Report 2024</h1>

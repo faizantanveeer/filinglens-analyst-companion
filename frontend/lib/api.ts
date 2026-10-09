@@ -3,7 +3,7 @@
  * which attaches the session API keys when present. Keys are never logged.
  */
 
-import { getApiKey, getClientId, getFallbackKey, getSearchKey, type AppSettings } from "./settings";
+import { getApiKey, getFallbackKey, getSearchKey, type AppSettings } from "./settings";
 import { readSSE, type AnswerType, type ChartData, type ChatEvent, type Citation, type DoneEvent } from "./sse";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -26,8 +26,8 @@ function headers(extra?: HeadersInit): Headers {
   if (fallbackKey) h.set("X-LLM-Fallback-Key", fallbackKey);
   const searchKey = getSearchKey();
   if (searchKey) h.set("X-Search-Key", searchKey);
-  const clientId = getClientId();
-  if (clientId) h.set("X-Client-Id", clientId);
+  const token = getToken();
+  if (token) h.set("Authorization", `Bearer ${token}`);
   return h;
 }
 
@@ -39,7 +39,56 @@ async function errorFrom(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message || `Request failed (${res.status})`);
 }
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+// ---------- session token ----------
+// Every visitor has a server-issued session: a guest one is created automatically on first use,
+// and signing up / logging in replaces it. Kept in localStorage so it survives reloads and tabs.
+
+const TOKEN_KEY = "filinglens.session";
+export const AUTH_EVENT = "filinglens:auth"; // token changed (login, logout, new guest)
+export const CREDITS_EVENT = "filinglens:credits"; // a 402: trial or allowance used up
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** notify=false for silent session plumbing (first guest session, expiry recovery): only real
+ *  identity changes (log in / log out) should reset what's on screen. */
+export function setToken(token: string | null, notify = true) {
+  try {
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+  if (notify) window.dispatchEvent(new Event(AUTH_EVENT));
+}
+
+let guestStarting: Promise<void> | null = null;
+
+/** Make sure a session exists, starting a guest one if needed (shared by concurrent callers). */
+export async function ensureSession(): Promise<void> {
+  if (getToken()) return;
+  guestStarting ??= (async () => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/auth/guest`, { method: "POST" });
+    } catch {
+      throw new ApiError(0, "Cannot reach the FilingLens API. Is the backend running?");
+    }
+    if (!res.ok) throw await errorFrom(res);
+    setToken((await res.json()).token, false);
+  })().finally(() => {
+    guestStarting = null;
+  });
+  await guestStarting;
+}
+
+async function send(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  const isAuth = path.startsWith("/auth/") || path === "/health";
+  if (!isAuth) await ensureSession();
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, { ...init, headers: headers(init.headers) });
@@ -47,7 +96,15 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
     if ((err as Error).name === "AbortError") throw err;
     throw new ApiError(0, "Cannot reach the FilingLens API. Is the backend running?");
   }
-  if (!res.ok) throw await errorFrom(res);
+  if (res.status === 401 && !isAuth && !retried) {
+    setToken(null, false); // expired or revoked: start a fresh guest session once and retry
+    return send(path, init, true);
+  }
+  if (!res.ok) {
+    const err = await errorFrom(res);
+    if (res.status === 402) window.dispatchEvent(new CustomEvent(CREDITS_EVENT, { detail: err.message }));
+    throw err;
+  }
   return res;
 }
 
@@ -80,15 +137,28 @@ export type DocumentInfo = {
   stage?: string | null; // e.g. "Indexed 48/152 pages · 130 chunks"
   source_url?: string | null; // set for filings imported from SEC EDGAR
   protected?: boolean | null; // the bundled sample in the public demo (can't be deleted)
+  owner_id?: string | null;
 };
 
 export const ACCEPTED_TYPES = [".pdf", ".html", ".htm", ".txt", ".md", ".epub"];
 
-/** URL of a rendered page with the cited passage highlighted (plain <img>, no headers needed). */
-export function pageImageUrl(docId: string, page: number, highlight = ""): string {
+/** A rendered page with the cited passage highlighted, as a local object URL. Fetched with the
+ *  session token (an <img src> can't send one), so other users can't load your pages. */
+export async function fetchPageImage(docId: string, page: number, highlight = ""): Promise<string> {
   const q = highlight ? `?highlight=${encodeURIComponent(highlight.slice(0, 1500))}` : "";
-  return `${API_URL}/documents/${encodeURIComponent(docId)}/pages/${page}.png${q}`;
+  const res = await send(`/documents/${encodeURIComponent(docId)}/pages/${page}.png${q}`);
+  return URL.createObjectURL(await res.blob());
 }
+
+export type Me = {
+  id: string;
+  email: string | null;
+  role: "guest" | "user" | "admin";
+  is_guest: boolean;
+  credits: { used: number; limit: number; remaining: number; period: "trial" | "month" };
+  limits: { questions: number; documents: number; upload_mb: number };
+  documents: number;
+};
 
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -203,7 +273,13 @@ export const api = {
 
   insights: (signal?: AbortSignal) => request<Insights>("/insights", { signal }),
 
-  // ---- chat sessions (scoped to this browser's X-Client-Id) ----
+  // ---- auth ----
+  me: () => request<Me>("/auth/me"),
+  signup: (email: string, password: string) => request<{ token: string; user: Me }>("/auth/signup", json({ email, password })),
+  login: (email: string, password: string) => request<{ token: string; user: Me }>("/auth/login", json({ email, password })),
+  logout: () => request<void>("/auth/logout", { method: "POST" }),
+
+  // ---- chat sessions (scoped to the signed-in user or guest) ----
   listSessions: (q = "", signal?: AbortSignal) =>
     request<SessionInfo[]>(`/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`, { signal }),
   createSession: () => request<SessionInfo>("/sessions", { method: "POST" }),

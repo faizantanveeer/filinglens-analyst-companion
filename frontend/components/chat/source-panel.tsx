@@ -6,15 +6,31 @@ import { AlertTriangle, ExternalLink, FileText, Globe, ImageIcon, TextIcon } fro
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { pageImageUrl } from "@/lib/api";
+import { fetchPageImage } from "@/lib/api";
 import type { Citation, DocCitation } from "@/lib/sse";
 import { cn } from "@/lib/utils";
 
 /** The real page with the cited passage highlighted, so a reader can check the claim against the filing itself. */
 function PageView({ c }: { c: DocCitation }) {
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
-  const src = pageImageUrl(c.doc_id, c.page, c.text);
-  useEffect(() => setState("loading"), [src]);
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let url: string | null = null;
+    let cancelled = false;
+    setState("loading");
+    setSrc(null);
+    fetchPageImage(c.doc_id, c.page, c.text)
+      .then((u) => {
+        url = u;
+        if (cancelled) URL.revokeObjectURL(u);
+        else setSrc(u);
+      })
+      .catch(() => !cancelled && setState("error"));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [c.doc_id, c.page, c.text]);
   return (
     <div className="relative">
       {state === "loading" && <Skeleton className="aspect-[8.5/11] w-full" />}
@@ -24,7 +40,7 @@ function PageView({ c }: { c: DocCitation }) {
         </p>
       ) : (
         // eslint-disable-next-line @next/next/no-img-element -- dynamic API image; next/image adds nothing here
-        <img
+        src && <img
           src={src}
           alt={`Page ${c.page} of ${c.filename}, with the cited passage highlighted`}
           onLoad={() => setState("ok")}

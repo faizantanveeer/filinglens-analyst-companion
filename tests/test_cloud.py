@@ -39,7 +39,10 @@ def test_chunked_upload_reassembles_pieces(monkeypatch):
         doc.new_page().insert_text((72, 72), f"Chunked upload page {i + 1}: revenue was {200 + i} million dollars.")
     data = doc.tobytes()
     assert len(data) > 3 * 512
+    from conftest import user_headers
+
     client = TestClient(main.app)
+    client.headers.update(user_headers(client, "cloud-uploader@example.com"))
     start = client.post("/uploads", json={"filename": "chunked.pdf", "size": len(data)}).json()
     size = start["chunk_size"]
     for seq, i in enumerate(range(0, len(data), size)):
