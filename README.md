@@ -68,9 +68,9 @@ Then:
 3. On **Documents**, upload a file or import from EDGAR by ticker. A 150-page report indexes in about 2 minutes on a laptop CPU, with live progress.
 4. Ask questions in **Chat**.
 
-### Deploy (free): Vercel + Modal
+### Deploy (free): everything on Vercel
 
-The UI deploys to Vercel and the API to Modal (serverless containers), with CORS locked to your Vercel domains. Step-by-step: [docs/DEPLOY.md](docs/DEPLOY.md).
+Live at https://filinglens-analyst-companion.vercel.app. The UI and the API (cloud mode: Neon Postgres, Qdrant Cloud, Jina AI) both run on Vercel. Step-by-step: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### Docker
 
