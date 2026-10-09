@@ -1,56 +1,61 @@
-# Deploying FilingLens (free): Vercel + Hugging Face Spaces
+# Deploying FilingLens (free): Vercel + Modal
 
 ```
-Browser ──▶ Vercel (Next.js UI)            https://<vercel-project>.vercel.app
-   └──────▶ Hugging Face Space (FastAPI)   https://<hf-user>-filinglens-api.hf.space
+Browser ──▶ Vercel (Next.js UI)       https://filinglens-analyst-companion.vercel.app
+   └──────▶ Modal (FastAPI API)       https://<modal-workspace>--filinglens-api-api.modal.run
 ```
 
-- **Why two hosts:** the API runs local embedding and reranking models, an on-disk vector index, background ingestion and SQLite. That's a ~1.4 GB container with a long-running process, which Vercel's serverless functions can't host (size limits, short timeouts, no disk). A Hugging Face Space (free CPU tier: 2 vCPU, 16 GB RAM, Docker) can.
-- **Why there are no CORS problems:** the browser calls the Space directly. The Space only accepts your Vercel production origin (`FRONTEND_ORIGIN`) plus preview URLs of *this* project (`FRONTEND_ORIGIN_REGEX`). Large uploads and long streaming answers don't pass through Vercel, so its request-size and duration limits don't apply.
+- **Why two hosts:** the API runs local embedding and reranking models, an on-disk vector index, background ingestion and SQLite. That needs ~2–3 GB of RAM and a long-lived process, which Vercel's serverless functions can't host. Free "always-on" tiers elsewhere give only 256–512 MB. Modal runs the container on demand, and its free plan includes monthly credits.
+- **Why there are no CORS problems:** the browser calls the API directly. The API only accepts your Vercel production origin plus preview URLs of this project (a regex), set when the image is built. Large uploads and long streaming answers don't pass through Vercel, so its body-size and duration limits don't apply.
 
-## 1. Backend: Hugging Face Space (≈15 min, mostly build time)
+## 1. Backend: Modal (≈10 min, mostly the first image build)
 
-1. Create a free account at huggingface.co. Then go to **Settings → Access Tokens → New token → type "Write"**.
-2. Log in once on your machine. The token is stored by the HF client; never paste it into code or chat:
+1. Create a free account at modal.com (sign in with GitHub).
+2. Log in once on your machine. It opens the browser and stores a token in `~/.modal.toml`:
    ```bash
-   .venv/Scripts/hf auth login          # Windows (Linux/macOS: .venv/bin/hf auth login)
+   .venv/Scripts/modal setup
    ```
-3. Push the API (replace `<hf-user>`; the Vercel URL is what you'll name the project in step 2.2):
+3. Deploy. The defaults target `https://filinglens-analyst-companion.vercel.app`; override them with the
+   `FILINGLENS_FRONTEND_ORIGIN` / `FILINGLENS_ORIGIN_REGEX` / `FILINGLENS_SEC_USER_AGENT` env vars if needed:
    ```bash
-   .venv/Scripts/python deploy/push_space.py \
-     --space <hf-user>/filinglens-api \
-     --frontend-origin https://filinglens-analyst-companion.vercel.app \
-     --preview-regex "^https://filinglens-analyst-companion(-[a-z0-9-]+)?\.vercel\.app$" \
-     --sec-user-agent "FilingLens your.email@example.com"
+   .venv/Scripts/modal deploy deploy/modal_app.py
    ```
-4. Watch the build at `https://huggingface.co/spaces/<hf-user>/filinglens-api`. It installs dependencies, bakes the models in and indexes the sample report. When it shows **Running**, check `https://<hf-user>-filinglens-api.hf.space/health` returns `{"status":"ok"}`.
+   The first build installs dependencies, bakes in the models and indexes the sample report (~5–10 min).
+   Later deploys reuse cached layers. The command prints the URL; check `<url>/health` returns `{"status":"ok"}`.
 
-The Space ships with the Berkshire Hathaway 2023 report pre-indexed and **protected**: visitors can't delete it.
-Uploads are capped at 20 MB. Free Spaces have no persistent disk, so visitor uploads and chats reset when the Space
-restarts, and it sleeps after ~48 h without traffic. The first visit then takes 1–2 min, and the UI shows "Waking API…".
+How it runs:
+- **One container** (`max_containers=1`), because the embedded index and SQLite are single-process. It serves up to 32 requests at once.
+- **The Berkshire Hathaway 2023 report is pre-indexed and protected.** Uploads are capped at 20 MB.
+- **It scales to zero after 15 idle minutes.** The next visit wakes it in about 10–30 s, and the UI shows "Waking API…". Visitor uploads and chats live on the container disk and reset when it scales down.
 
 ## 2. Frontend: Vercel (≈3 min)
 
-1. At vercel.com → **Add New… → Project → Import** `faizantanveeer/filinglens-analyst-companion` (GitHub is already connected).
+1. At vercel.com → **Add New… → Project → Import** `faizantanveeer/filinglens-analyst-companion` (GitHub is connected).
 2. Configure:
-   - **Project Name:** `filinglens-analyst-companion` (this gives the URL used in step 1.3)
+   - **Project Name:** `filinglens-analyst-companion` (it must match the origin the API allows)
    - **Root Directory:** `frontend` ← important
    - **Framework Preset:** Next.js (auto-detected)
-   - **Environment Variable:** `NEXT_PUBLIC_API_URL` = `https://<hf-user>-filinglens-api.hf.space`
-3. **Deploy.** Production deploys from `main`; pushes to `dev` get preview URLs, which the backend accepts via the regex above.
+   - **Environment Variable:** `NEXT_PUBLIC_API_URL` = the Modal URL from step 1.3
+3. **Deploy.** Production builds from `main`; pushes to `dev` get preview URLs, which the API accepts.
 
-If you choose a different project name or add a custom domain, re-run step 1.3 with the new origin. It only updates
-the Space variables; the Space restarts on its own.
+If Vercel gives a different domain (name taken) or you add a custom domain, redeploy the API with
+`FILINGLENS_FRONTEND_ORIGIN=https://<your-domain>` (and a matching `FILINGLENS_ORIGIN_REGEX`).
 
 ## 3. Check it works
 
-- Open the Vercel URL. The header badge should turn **API online** (or show "Waking API…" first).
-- **Settings:** paste your model key (it stays in the browser tab), then **Test connection**.
-- **Chat:** try the Executive briefing starter. Citations should open the real page with highlights.
+- Open the Vercel URL. The header badge turns **API online** (or shows "Waking API…" first).
+- **Settings:** add your model key (it stays in the browser tab), then **Test connection**.
+- **Chat:** try the Executive briefing starter. Citations open the real page with highlights.
 - **Documents:** import a filing by ticker (e.g. `AAPL`, 10-K).
 
 ## Branch workflow
 
-- `dev`: day-to-day work. Every push gets its own Vercel preview URL.
-- `main`: production. Merge `dev` → `main` (pull request on GitHub) to update the live site.
-- **Backend changes:** re-run `deploy/push_space.py`. The Space rebuilds from your local files, so push from the branch you mean to release.
+- `dev`: day-to-day work; every push gets a Vercel preview URL.
+- `main`: production; merge `dev` → `main` to update the live site.
+- **Backend changes:** `modal deploy deploy/modal_app.py` from the branch you mean to release.
+
+## Alternative: Hugging Face Spaces (paid)
+
+`deploy/huggingface/` and `deploy/push_space.py` package the same API as a Docker Space; the image is built and tested.
+Hugging Face now requires a PRO subscription for Docker Spaces on CPU (`402 Payment Required` for free accounts), so
+this route is kept only as a paid option.

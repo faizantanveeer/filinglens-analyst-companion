@@ -1,0 +1,3 @@
+# Deploy-only tooling (not needed to run the app)
+modal==1.6.1
+huggingface_hub  # only for the optional Hugging Face Space route (paid Docker Spaces)
