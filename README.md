@@ -42,7 +42,6 @@ flowchart TD
 - **Chat history:** saved sessions with search, rename and delete. Long chats stay fast because older turns are summarised.
 - **Cross-chat memory (opt-in):** remembers your preferences across chats. View and delete memories in Settings.
 - **Web search (Tavily, optional):** used automatically only when your documents can't answer, and clearly labelled.
-- **SEC EDGAR import:** type a ticker and pick a form (10-K, 10-Q, 20-F, 40-F) to fetch and index the latest filing. Set `SEC_USER_AGENT` in `.env`.
 - **See the real page:** citations open the actual page with the cited passage highlighted, or the extracted text.
 - **Plain-English key terms:** jargon in an answer (float, GAAP, underwriting…) is explained underneath, labelled as general definitions, never as document facts.
 - **Executive briefing, document scope, export:** a one-click Deep-research overview of a report, a picker for which documents a chat searches, and Markdown export of a thread.

@@ -48,6 +48,35 @@ class LLMConfig:
         return [k for k in (self.api_key, self.fallback_key) if k]
 
 
+# List prices in USD per million tokens (input, output), used when LiteLLM isn't installed (cloud mode)
+# or doesn't know the model. Longest matching prefix wins; unknown models cost 0. Estimates only.
+PRICES: dict[str, tuple[float, float]] = {
+    "gpt-5-nano": (0.05, 0.40),
+    "gpt-5-mini": (0.25, 2.00),
+    "gpt-5": (1.25, 10.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "claude-haiku": (1.00, 5.00),
+    "claude-sonnet": (3.00, 15.00),
+    "claude-opus": (5.00, 25.00),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "llama-3.1-8b": (0.05, 0.08),
+    "llama-3.3-70b": (0.59, 0.79),
+}
+
+
+def estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
+    name = model.split("/", 1)[-1].lower()
+    match = max((p for p in PRICES if name.startswith(p)), key=len, default=None)
+    if not match:
+        return 0.0
+    p_in, p_out = PRICES[match]
+    return (tokens_in * p_in + tokens_out * p_out) / 1_000_000
+
+
 @dataclass
 class LLMResult:
     text: str
@@ -150,7 +179,8 @@ def complete(tier: str, messages: list[dict], cfg: LLMConfig, json_mode: bool = 
             except Exception as exc:
                 errors.append(f"{model}: {type(exc).__name__}: {mask(str(exc), cfg.secrets())[:200]}")
                 continue
-            return LLMResult(text=text, model=model, input_tokens=tokens_in, output_tokens=tokens_out, cost=0.0)
+            cost = estimate_cost(model, tokens_in, tokens_out)
+            return LLMResult(text=text, model=model, input_tokens=tokens_in, output_tokens=tokens_out, cost=cost)
         try:
             resp = litellm.completion(**kwargs)
         except Exception as exc:
@@ -161,6 +191,7 @@ def complete(tier: str, messages: list[dict], cfg: LLMConfig, json_mode: bool = 
             cost = float(litellm.completion_cost(completion_response=resp) or 0.0)
         except Exception:
             cost = 0.0  # unknown pricing (e.g. Ollama or a brand-new model)
+        cost = cost or estimate_cost(model, getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0)
         return LLMResult(
             text=resp.choices[0].message.content or "",
             model=model,

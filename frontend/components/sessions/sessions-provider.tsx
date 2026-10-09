@@ -1,6 +1,6 @@
 "use client";
 
-/** The sidebar's list of chat sessions: search, refresh, rename, delete. Data lives on the server. */
+/** The sidebar's list of chat sessions: search, refresh, rename, pin, delete. Data lives on the server. */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ type SessionsContextValue = {
   setQuery: (q: string) => void;
   refresh: () => Promise<void>;
   rename: (id: string, title: string) => Promise<boolean>;
+  pin: (id: string, pinned: boolean) => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
   removeAll: () => Promise<boolean>;
 };
@@ -75,6 +76,21 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const pin = useCallback(
+    async (id: string, pinned: boolean) => {
+      setSessions((s) => s?.map((x) => (x.id === id ? { ...x, pinned } : x)) ?? s); // optimistic
+      try {
+        await api.pinSession(id, pinned);
+        return true;
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : "Couldn't update the chat.");
+        void refresh();
+        return false;
+      }
+    },
+    [refresh],
+  );
+
   const remove = useCallback(async (id: string) => {
     try {
       await api.deleteSession(id);
@@ -99,7 +115,7 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SessionsContext.Provider value={{ sessions, query, setQuery, refresh, rename, remove, removeAll }}>{children}</SessionsContext.Provider>
+    <SessionsContext.Provider value={{ sessions, query, setQuery, refresh, rename, pin, remove, removeAll }}>{children}</SessionsContext.Provider>
   );
 }
 
