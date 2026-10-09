@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BarChart3, FileText, MessageSquare, PanelLeft, ScanSearch, Settings, X } from "lucide-react";
 
 import { ApiStatus } from "@/components/api-status";
+import { AccountBox } from "@/components/auth/account-box";
 import { useChat } from "@/components/chat/chat-provider";
 import { SessionList } from "@/components/sessions/session-list";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -138,6 +139,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Nav pathname={pathname} group="top" />
           <SessionList />
           <Nav pathname={pathname} group="bottom" />
+          <AccountBox />
         </div>
       </aside>
 
@@ -161,6 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Nav pathname={pathname} group="top" onNavigate={() => setMobileOpen(false)} />
             <SessionList onNavigate={() => setMobileOpen(false)} />
             <Nav pathname={pathname} group="bottom" onNavigate={() => setMobileOpen(false)} />
+            <AccountBox />
           </aside>
         </div>
       )}

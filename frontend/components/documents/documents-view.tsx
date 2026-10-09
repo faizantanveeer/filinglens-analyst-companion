@@ -19,7 +19,8 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ACCEPTED_TYPES, api, ApiError, type DocumentInfo } from "@/lib/api";
+import { useAuth } from "@/components/auth/auth-provider";
+import { ACCEPTED_TYPES, api, ApiError, AUTH_EVENT, type DocumentInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Upload = { id: string; name: string; progress: number; state: "uploading" | "indexing" | "failed"; error?: string };
@@ -120,6 +121,7 @@ function EdgarImport({ onImported }: { onImported: () => Promise<void> }) {
 }
 
 export function DocumentsView() {
+  const { me, refresh: refreshMe } = useAuth();
   const [docs, setDocs] = useState<DocumentInfo[] | null>(null);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -138,6 +140,8 @@ export function DocumentsView() {
 
   useEffect(() => {
     void refresh();
+    window.addEventListener(AUTH_EVENT, refresh);
+    return () => window.removeEventListener(AUTH_EVENT, refresh);
   }, [refresh]);
 
   // Poll while anything is indexing; indexing a 150-page report takes a few minutes.
@@ -174,7 +178,8 @@ export function DocumentsView() {
             },
           ).finally(() => poll && clearInterval(poll));
           setUploads((u) => u.filter((x) => x.id !== id));
-          toast.success(`${file.name} uploaded. Indexing has started.`);
+          toast.success(`${file.name} uploaded and indexed.`);
+          void refreshMe();
           await refresh();
         } catch (err) {
           const message = err instanceof ApiError ? err.message : "Upload failed.";
@@ -336,7 +341,7 @@ export function DocumentsView() {
                   </a>
                 )}
                 <StatusBadge doc={d} />
-                {d.protected ? (
+                {d.protected || !(me && (d.owner_id === me.id || me.role === "admin")) ? (
                   <Badge variant="outline" title="Bundled sample document">
                     Sample
                   </Badge>

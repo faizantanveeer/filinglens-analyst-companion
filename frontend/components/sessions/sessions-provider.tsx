@@ -5,7 +5,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { api, ApiError, type SessionInfo } from "@/lib/api";
+import { api, ApiError, AUTH_EVENT, type SessionInfo } from "@/lib/api";
 
 type SessionsContextValue = {
   sessions: SessionInfo[] | null; // null while the first load is in flight
@@ -48,6 +48,15 @@ export function SessionsProvider({ children }: { children: React.ReactNode }) {
   }, [query, load]);
 
   const refresh = useCallback(() => load(queryRef.current), [load]);
+
+  useEffect(() => {
+    const onAuth = () => {
+      setSessions(null);
+      void load(queryRef.current);
+    };
+    window.addEventListener(AUTH_EVENT, onAuth);
+    return () => window.removeEventListener(AUTH_EVENT, onAuth);
+  }, [load]);
 
   const rename = useCallback(
     async (id: string, title: string) => {

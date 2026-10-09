@@ -21,19 +21,24 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def find_by_hash(digest: str) -> dict | None:
+def find_by_hash(digest: str, owner_id: str | None = None) -> dict | None:
+    """De-duplicate within one owner only: matching another user's file would hand over their document."""
     with tx() as c:
-        row = c.execute("SELECT * FROM documents WHERE sha256 = ? AND status != 'error'", (digest,)).fetchone()
+        if owner_id is None:
+            row = c.execute("SELECT * FROM documents WHERE sha256 = ? AND status != 'error' AND owner_id IS NULL", (digest,)).fetchone()
+        else:
+            row = c.execute("SELECT * FROM documents WHERE sha256 = ? AND status != 'error' AND owner_id = ?", (digest, owner_id)).fetchone()
     return dict(row) if row else None
 
 
-def register(doc_id: str, filename: str, digest: str, filetype: str = "pdf", source_url: str | None = None) -> dict:
+def register(doc_id: str, filename: str, digest: str, filetype: str = "pdf", source_url: str | None = None, owner_id: str | None = None) -> dict:
+    """owner_id None = public (only for the protected sample); every upload has an owner."""
     now = datetime.now(timezone.utc).isoformat()
     with tx() as c:
         c.execute(
-            "INSERT INTO documents (id, filename, sha256, status, created_at, filetype, stage, source_url) "
-            "VALUES (?, ?, ?, 'processing', ?, ?, 'Queued', ?)",
-            (doc_id, filename, digest, now, filetype, source_url),
+            "INSERT INTO documents (id, filename, sha256, status, created_at, filetype, stage, source_url, owner_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, 'Queued', ?, ?)",
+            (doc_id, filename, digest, now, filetype, source_url, owner_id),
         )
     return get(doc_id)  # type: ignore[return-value]
 
@@ -48,6 +53,39 @@ def list_all() -> list[dict]:
     with tx() as c:
         rows = c.execute("SELECT * FROM documents ORDER BY created_at DESC").fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- access control ----------
+
+
+def list_for(user: dict) -> list[dict]:
+    """Your documents plus the public sample; admins see everything."""
+    if user["role"] == "admin":
+        return list_all()
+    with tx() as c:
+        rows = c.execute("SELECT * FROM documents WHERE owner_id = ? OR owner_id IS NULL ORDER BY created_at DESC", (user["id"],)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ready_ids_for(user: dict) -> list[str]:
+    return sorted(d["id"] for d in list_for(user) if d["status"] == "ready" and (user["role"] != "admin" or d["owner_id"] in (None, user["id"])))
+
+
+def can_read(doc: dict | None, user: dict) -> bool:
+    return bool(doc) and (user["role"] == "admin" or doc["owner_id"] is None or doc["owner_id"] == user["id"])
+
+
+def can_delete(doc: dict | None, user: dict) -> bool:
+    if not doc:
+        return False
+    if user["role"] == "admin":
+        return True
+    return doc["owner_id"] == user["id"] and not doc.get("protected")
+
+
+def count_owned(owner_id: str) -> int:
+    with tx() as c:
+        return c.execute("SELECT COUNT(*) AS n FROM documents WHERE owner_id = ?", (owner_id,)).fetchone()["n"]
 
 
 def ready_ids() -> list[str]:

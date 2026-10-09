@@ -60,25 +60,6 @@ const PREFS = "filinglens.settings";
 const API_KEY = "filinglens.llmKey";
 const FALLBACK_KEY = "filinglens.llmFallbackKey";
 const SEARCH_KEY = "filinglens.searchKey";
-const CLIENT_ID = "filinglens.clientId";
-
-/**
- * Anonymous per-browser id that scopes chat sessions and memories on the server (there is no
- * login). Not a secret and not authentication: it only keeps different browsers' chats apart.
- */
-export function getClientId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    let id = window.localStorage.getItem(CLIENT_ID);
-    if (!id) {
-      id = crypto.randomUUID();
-      window.localStorage.setItem(CLIENT_ID, id);
-    }
-    return id;
-  } catch {
-    return "";
-  }
-}
 const TOKENS_USED = "filinglens.tokensUsed";
 
 // ---- tiny external store so every component sees changes immediately ----

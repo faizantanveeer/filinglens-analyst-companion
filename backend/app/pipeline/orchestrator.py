@@ -197,7 +197,7 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
                 return
         trace.question = question
 
-        doc_ids = req.doc_ids or documents.ready_ids()
+        doc_ids = req.doc_ids or []  # the API passes exactly the documents this user may search
         if not doc_ids:
             yield "error", {"message": "No documents are indexed yet. Upload a PDF on the Documents page."}
             return

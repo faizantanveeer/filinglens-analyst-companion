@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
 import { AppShell } from "@/components/app-shell";
+import { AuthProvider } from "@/components/auth/auth-provider";
 import { ChatProvider } from "@/components/chat/chat-provider";
 import { SessionsProvider } from "@/components/sessions/sessions-provider";
 import { THEME_SCRIPT, ThemeProvider } from "@/components/theme";
@@ -27,11 +28,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-sans">
         <ThemeProvider>
           <TooltipProvider>
-            <SessionsProvider>
-              <ChatProvider>
-                <AppShell>{children}</AppShell>
-              </ChatProvider>
-            </SessionsProvider>
+            <AuthProvider>
+              <SessionsProvider>
+                <ChatProvider>
+                  <AppShell>{children}</AppShell>
+                </ChatProvider>
+              </SessionsProvider>
+            </AuthProvider>
           </TooltipProvider>
           <Toaster position="bottom-right" />
         </ThemeProvider>

@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     jina_embedding_dim: int = 512  # Matryoshka truncation: half the storage of 1024 with little quality loss
     jina_rerank_model: str = "jina-reranker-v2-base-multilingual"
 
+    # Accounts and credits (visitors bring their own LLM key; credits bound hosted resources)
+    admin_emails: str = ""  # comma-separated; these accounts get the admin role
+    session_days: int = 30
+    guest_session_days: int = 7
+    guest_questions: int = 5
+    guest_documents: int = 1
+    guest_upload_mb: int = 10
+    user_questions_per_month: int = 200
+    user_documents: int = 20
+    guests_per_ip_per_hour: int = 20
+    login_attempts_per_15min: int = 8
+
     @property
     def cloud(self) -> bool:
         return self.deploy_mode == "cloud"

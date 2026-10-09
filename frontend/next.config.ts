@@ -26,6 +26,30 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: [...ownAddresses, ...extraDevOrigins],
   // Don't let `next dev` write AGENTS.md into the project.
   agentRules: false,
+  // Browser security headers. CSP only in production (dev tooling needs eval and websockets).
+  async headers() {
+    const api = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+    const base = [
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+    ];
+    if (process.env.NODE_ENV !== "production") return [{ source: "/:path*", headers: base }];
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'", // Next.js inline bootstrap + the no-flash theme script
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' blob: data:",
+      "font-src 'self' data:",
+      `connect-src 'self' ${api}`.trim(),
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+    ].join("; ");
+    return [{ source: "/:path*", headers: [...base, { key: "Content-Security-Policy", value: csp }] }];
+  },
   async rewrites() {
     return backend ? [{ source: "/api/:path*", destination: `${backend}/:path*` }] : [];
   },

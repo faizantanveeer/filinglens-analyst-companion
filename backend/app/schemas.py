@@ -57,6 +57,11 @@ class ChatRequest(BaseModel):
     settings: LLMSettings
 
 
+class Credentials(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+
+
 class UploadStart(BaseModel):
     filename: str = Field(min_length=1, max_length=200)
     size: int = Field(ge=1)
@@ -99,6 +104,7 @@ class DocumentOut(BaseModel):
     stage: str | None = None
     source_url: str | None = None
     protected: bool | None = False
+    owner_id: str | None = None
 
 
 class AnswerJSON(BaseModel):
