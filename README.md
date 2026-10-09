@@ -68,9 +68,9 @@ Then:
 3. On **Documents**, upload a file or import from EDGAR by ticker. A 150-page report indexes in about 2 minutes on a laptop CPU, with live progress.
 4. Ask questions in **Chat**.
 
-### Deploy (free): Vercel + Hugging Face Spaces
+### Deploy (free): Vercel + Modal
 
-The UI deploys to Vercel and the API to a Hugging Face Space, with CORS locked to your Vercel domain. Step-by-step: [docs/DEPLOY.md](docs/DEPLOY.md).
+The UI deploys to Vercel and the API to Modal (serverless containers), with CORS locked to your Vercel domains. Step-by-step: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### Docker
 
