@@ -3,8 +3,8 @@ FROM python:3.13-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1     FASTEMBED_CACHE_PATH=/models DATA_DIR=/data
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-local.txt ./
+RUN pip install --no-cache-dir -r requirements-local.txt
 
 COPY backend ./backend
 # Bake the local models into the image so the first question doesn't wait for downloads.

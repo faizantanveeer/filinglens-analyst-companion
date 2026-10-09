@@ -33,6 +33,7 @@ SEC_USER_AGENT = os.environ.get("FILINGLENS_SEC_USER_AGENT", "FilingLens 1348280
 image = (
     modal.Image.debian_slim(python_version="3.13")
     .pip_install_from_requirements(str(ROOT / "requirements.txt"))
+    .pip_install("uvicorn[standard]==0.54.0", "litellm==1.104.2", "fastembed==0.9.0")  # local-mode extras
     .env(
         {
             "FASTEMBED_CACHE_PATH": "/models",

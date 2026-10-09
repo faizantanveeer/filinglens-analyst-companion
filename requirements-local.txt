@@ -1,0 +1,9 @@
+# Local mode: everything in requirements.txt plus the local ML stack and dev tools.
+-r requirements.txt
+uvicorn[standard]==0.54.0
+litellm==1.104.2           # one LLM interface with cost accounting (~160 MB, so not in the cloud bundle)
+fastembed==0.9.0           # local embeddings, BM25 and cross-encoder reranking (onnxruntime)
+
+# Tests (FastAPI TestClient needs httpx)
+pytest==9.1.1
+httpx==0.28.1

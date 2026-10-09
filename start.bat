@@ -8,7 +8,7 @@ rem ---- first-run setup ----
 if not exist ".venv\Scripts\python.exe" (
     echo Creating Python virtual environment...
     python -m venv .venv || goto :fail
-    ".venv\Scripts\python.exe" -m pip install -r requirements.txt || goto :fail
+    ".venv\Scripts\python.exe" -m pip install -r requirements-local.txt || goto :fail
 )
 if not exist "frontend\node_modules" (
     echo Installing frontend dependencies...

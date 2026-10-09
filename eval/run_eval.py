@@ -34,8 +34,9 @@ from backend.app.seed import fetch_sample  # noqa: E402
 
 REPORT = ROOT / "data" / "report.pdf"
 GOLDEN = ROOT / "golden.jsonl"
-RESULTS = ROOT / "results.md"
-SWEEP = [-6.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0]
+# Cloud mode (Jina reranker) scores 0..1; local cross-encoder logits span about -11..+10.
+RESULTS = ROOT / ("results-cloud.md" if settings.cloud else "results.md")
+SWEEP = [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5] if settings.cloud else [-6.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0]
 
 
 def ensure_indexed() -> str:
@@ -48,9 +49,8 @@ def ensure_indexed() -> str:
     doc_id = "evalreport"
     if doc:
         documents.delete(doc["id"])
-    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
-    documents.file_path(doc_id).write_bytes(data)
     documents.register(doc_id, REPORT.name, digest)
+    documents.save_file(doc_id, "pdf", data)
     print("Indexing report (one-time, a few minutes)…")
     documents.ingest(doc_id)
     if documents.get(doc_id)["status"] != "ready":

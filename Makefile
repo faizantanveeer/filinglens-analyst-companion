@@ -11,7 +11,7 @@ API_PORT ?= 8000
 
 install:
 	python -m venv .venv
-	$(PY) -m pip install -r requirements.txt
+	$(PY) -m pip install -r requirements-local.txt
 	cd frontend && npm ci
 
 api:

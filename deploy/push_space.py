@@ -45,6 +45,7 @@ def main() -> None:
         stage = Path(tmp)
         shutil.copytree(ROOT / "backend", stage / "backend", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         shutil.copy(ROOT / "requirements.txt", stage / "requirements.txt")
+        shutil.copy(ROOT / "requirements-local.txt", stage / "requirements-local.txt")
         shutil.copy(ROOT / "deploy" / "huggingface" / "Dockerfile", stage / "Dockerfile")
         shutil.copy(ROOT / "deploy" / "huggingface" / "README.md", stage / "README.md")
         api.upload_folder(

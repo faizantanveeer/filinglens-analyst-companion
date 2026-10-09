@@ -31,6 +31,28 @@ class Settings(BaseSettings):
     # Public-demo hardening
     sample_document_url: str = "https://www.berkshirehathaway.com/2023ar/2023ar.pdf"
 
+    # Deployment mode. "local": SQLite + embedded Qdrant + local fastembed models (dev, eval, Docker).
+    # "cloud": serverless (Vercel) with hosted services: Postgres (DATABASE_URL), Qdrant Cloud,
+    # Jina AI embeddings + reranking. Cloud mode is opt-in so credentials sitting in .env never
+    # switch a local run over to the hosted databases by accident.
+    deploy_mode: str = "local"
+    database_url: str = ""
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    jina_api_key: str = ""
+    jina_embedding_model: str = "jina-embeddings-v3"
+    jina_embedding_dim: int = 512  # Matryoshka truncation: half the storage of 1024 with little quality loss
+    jina_rerank_model: str = "jina-reranker-v2-base-multilingual"
+
+    @property
+    def cloud(self) -> bool:
+        return self.deploy_mode == "cloud"
+
+    @property
+    def serverless(self) -> bool:
+        """No reliable background work after a response: run follow-up work inside the request."""
+        return self.cloud
+
     # Storage
     data_dir: Path = Path("data")
     max_upload_mb: int = 50

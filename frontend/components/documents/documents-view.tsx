@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ACCEPTED_TYPES, api, ApiError, type DocumentInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Upload = { id: string; name: string; progress: number; state: "uploading" | "failed"; error?: string };
+type Upload = { id: string; name: string; progress: number; state: "uploading" | "indexing" | "failed"; error?: string };
 
 const MAX_MB = 50;
 
@@ -162,7 +162,17 @@ export function DocumentsView() {
         }
         setUploads((u) => [...u, { id, name: file.name, progress: 0, state: "uploading" }]);
         try {
-          await api.uploadDocument(file, (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))));
+          // While the server indexes (inside the request on serverless hosts), keep refreshing the list
+          // so its live progress bar shows.
+          let poll: ReturnType<typeof setInterval> | undefined;
+          await api.uploadDocument(
+            file,
+            (p) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))),
+            (stage) => {
+              setUploads((u) => u.map((x) => (x.id === id ? { ...x, state: stage } : x)));
+              if (stage === "indexing") poll = setInterval(() => void refresh(), 3000);
+            },
+          ).finally(() => poll && clearInterval(poll));
           setUploads((u) => u.filter((x) => x.id !== id));
           toast.success(`${file.name} uploaded. Indexing has started.`);
           await refresh();
@@ -257,7 +267,15 @@ export function DocumentsView() {
                     Dismiss
                   </button>
                 ) : (
-                  <span className="text-muted-foreground tabular-nums">{Math.round(u.progress * 100)}%</span>
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground tabular-nums">
+                    {u.state === "indexing" ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden /> Indexing…
+                      </>
+                    ) : (
+                      `${Math.round(u.progress * 100)}%`
+                    )}
+                  </span>
                 )}
               </div>
               {u.state === "failed" ? (

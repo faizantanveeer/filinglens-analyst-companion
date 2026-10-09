@@ -12,8 +12,8 @@ FROM python:3.13-slim
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 FASTEMBED_CACHE_PATH=/app/models DATA_DIR=/tmp/filinglens     FRONTEND_ORIGIN=http://localhost:7860 NODE_ENV=production PORT=7860 HOSTNAME=0.0.0.0
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-local.txt ./
+RUN pip install --no-cache-dir -r requirements-local.txt
 COPY backend ./backend
 RUN python -c "from backend.app.embeddings import dense_model, sparse_model, rerank_model; dense_model(); sparse_model(); rerank_model()"
 COPY --from=web /app/.next/standalone ./web

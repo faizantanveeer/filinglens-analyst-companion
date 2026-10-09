@@ -65,6 +65,51 @@ def file_path(doc_id: str, filetype: str | None = None) -> Path:
     return settings.uploads_dir / f"{doc_id}.{ext}"
 
 
+# ---------- file storage ----------
+# Local mode: files live under DATA_DIR/uploads. Cloud mode (serverless, no persistent disk):
+# files live in the database as ordered pieces and are materialised to /tmp when needed.
+
+PIECE = 4 * 1024 * 1024  # also the upload chunk size: under Vercel's 4.5 MB request-body limit
+
+
+def add_piece(doc_id: str, seq: int, data: bytes) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM files WHERE doc_id = ? AND seq = ?", (doc_id, seq))
+        c.execute("INSERT INTO files (doc_id, seq, data) VALUES (?, ?, ?)", (doc_id, seq, data))
+
+
+def read_pieces(doc_id: str) -> bytes:
+    with tx() as c:
+        rows = c.execute("SELECT data FROM files WHERE doc_id = ? ORDER BY seq", (doc_id,)).fetchall()
+    return b"".join(bytes(r["data"]) for r in rows)
+
+
+def drop_pieces(doc_id: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM files WHERE doc_id = ?", (doc_id,))
+
+
+def save_file(doc_id: str, filetype: str, data: bytes) -> None:
+    """Persist the original file where this deployment keeps files."""
+    if settings.cloud:
+        drop_pieces(doc_id)
+        for seq, start in enumerate(range(0, len(data), PIECE)):
+            add_piece(doc_id, seq, data[start : start + PIECE])
+    else:
+        settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+        file_path(doc_id, filetype).write_bytes(data)
+
+
+def local_path(doc_id: str, filetype: str | None = None) -> Path:
+    """A path on local disk for parsing/rendering; in cloud mode, fetched from the database once
+    per warm instance (cold instances start with an empty /tmp)."""
+    path = file_path(doc_id, filetype)
+    if settings.cloud and not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(read_pieces(doc_id))
+    return path
+
+
 def _progress(doc_id: str, fraction: float, stage: str) -> None:
     with tx() as c:
         c.execute("UPDATE documents SET progress=?, stage=? WHERE id=?", (round(fraction, 3), stage, doc_id))
@@ -78,7 +123,7 @@ def ingest(doc_id: str) -> None:
     """
     try:
         ftype = filetype_of(doc_id)
-        path = file_path(doc_id, ftype)
+        path = local_path(doc_id, ftype)
         total = page_count(path, ftype)
         _progress(doc_id, 0.0, f"Parsing 0/{total} pages")
         done_pages, n_chunks, suspicious = 0, 0, 0
@@ -113,6 +158,7 @@ def delete(doc_id: str) -> bool:
         return False
     delete_vectors(doc_id)
     file_path(doc_id).unlink(missing_ok=True)
+    drop_pieces(doc_id)
     shutil.rmtree(page_cache_dir(doc_id, create=False), ignore_errors=True)  # rendered page previews
     with tx() as c:
         c.execute("DELETE FROM documents WHERE id = ?", (doc_id,))

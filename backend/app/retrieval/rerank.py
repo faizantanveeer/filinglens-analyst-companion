@@ -1,7 +1,7 @@
 """Cross-encoder rerank + abstain threshold."""
 
 from ..config import settings
-from ..embeddings import rerank_model
+from ..embeddings import rerank_scores
 from .hybrid import Candidate
 
 
@@ -10,12 +10,12 @@ def rerank(query: str, candidates: list[Candidate], top_k: int | None = None) ->
 
     Why: a bi-encoder embeds query and chunk separately; a cross-encoder reads them
     together, so it judges relevance far better. It's slower, so it only sees the
-    fused pool (20), never the whole corpus.
+    fused pool (10 by default), never the whole corpus.
     """
     pool = candidates[: settings.rerank_pool]
     if not pool:
         return []
-    scores = list(rerank_model().rerank(query, [c.text for c in pool]))
+    scores = rerank_scores(query, [c.text for c in pool])
     for c, s in zip(pool, scores):
         c.rerank_score = float(s)
     pool.sort(key=lambda c: c.rerank_score, reverse=True)
