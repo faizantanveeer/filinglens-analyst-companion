@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets and local config (keys are never stored in files, but keep env files out regardless)
+.env
+frontend/.env.local
+.vercel/
+
+# Runtime data: uploads, indexes, chat sessions, memories, traces
+data/
+*.db
+*.sqlite
+eval/.index/
+
+# The sample report is downloaded on demand (public, but not redistributed here)
+eval/data/
+
+# Frontend build output
+frontend/node_modules/
+frontend/.next/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+frontend/AGENTS.md
+
+# Misc
+*.log
+.DS_Store

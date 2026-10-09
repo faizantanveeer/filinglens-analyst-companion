@@ -1,0 +1,16 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1     FASTEMBED_CACHE_PATH=/models DATA_DIR=/data
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend ./backend
+# Bake the local models into the image so the first question doesn't wait for downloads.
+RUN python -c "from backend.app.embeddings import dense_model, sparse_model, rerank_model; dense_model(); sparse_model(); rerank_model()"
+
+VOLUME /data
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
