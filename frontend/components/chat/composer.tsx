@@ -2,12 +2,13 @@
 
 import { forwardRef, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
-import { ArrowUp, Check, ChevronDown, FileStack, Globe, Square, Telescope, Zap } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Cpu, FileStack, Globe, Square, Telescope, Zap } from "lucide-react";
 import { Popover } from "radix-ui";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import type { DocumentInfo } from "@/lib/api";
+import { PROVIDERS, useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -53,6 +54,30 @@ function ModeSwitch({ deep, onChange }: { deep: boolean; onChange: (v: boolean) 
         <Telescope className="size-3.5" aria-hidden /> Deep<span className="hidden sm:inline"> research</span>
       </button>
     </div>
+  );
+}
+
+/** The model(s) that will answer, from Settings. Quick lets the router pick the small or large tier per
+ *  question; Deep research always uses the large one. Click to change it in Settings. */
+function ModelChip({ deep }: { deep: boolean }) {
+  const { settings } = useSettings();
+  const provider = PROVIDERS.find((p) => p.value === settings.provider)?.label ?? settings.provider;
+  const small = settings.small_model.trim();
+  const large = settings.large_model.trim();
+  const models = deep || !small || small === large ? large || small : `${small} / ${large}`;
+  const title = deep
+    ? `Deep research answers with ${provider} ${large}.`
+    : `${provider}: simple questions use ${small}, harder ones ${large}. Change in Settings.`;
+  return (
+    <Link
+      href="/settings"
+      title={title}
+      aria-label={`Model: ${provider} ${models}. Change in Settings.`}
+      className="inline-flex max-w-40 min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-64"
+    >
+      <Cpu className="size-3.5 shrink-0" aria-hidden />
+      <span className="hidden truncate sm:inline">{models || "No model set"}</span>
+    </Link>
   );
 }
 
@@ -243,7 +268,8 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
         <ModeSwitch deep={deep} onChange={onDeepChange} />
         <WebToggle on={webOn} hasKey={hasSearchKey} onChange={onWebChange} />
         {docs && docs.length > 1 && <ScopePicker docs={docs} scope={scope} onChange={onScopeChange} />}
-        <div className="ml-auto">
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          <ModelChip deep={deep} />
           {busy ? (
             <Button type="button" size="icon" variant="secondary" onClick={onStop} aria-label="Stop answering" className="size-9 rounded-full">
               <Square className="fill-current" aria-hidden />
