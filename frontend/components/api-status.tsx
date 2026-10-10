@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const RETRY_OFFLINE_MS = 3000; // the API can take ~15 s to boot, so keep checking until it answers
 const RECHECK_ONLINE_MS = 30000; // and notice if it goes away later
 
-/** Small badge showing whether the backend answers /health. */
+/** Badge shown only while the backend doesn't answer /health; nothing is shown when it's online. */
 export function ApiStatus() {
   const [state, setState] = useState<"loading" | "online" | "offline">("loading");
   const [since, setSince] = useState<number | null>(null); // when the current outage started
@@ -47,7 +45,7 @@ export function ApiStatus() {
     };
   }, []);
 
-  if (state === "loading") return <Skeleton className="h-6 w-24" aria-label="Checking API status" />;
+  if (state !== "offline") return null;
 
   return (
     <span
@@ -56,9 +54,9 @@ export function ApiStatus() {
     >
       <span
         aria-hidden
-        className={cn("size-2 rounded-full", state === "online" ? "bg-primary" : "bg-destructive")}
+        className="size-2 rounded-full bg-destructive"
       />
-      {state === "online" ? "API online" : since && Date.now() - since < 180_000 ? "Waking API…" : "API offline"}
+      {since && Date.now() - since < 180_000 ? "Waking API…" : "API offline"}
     </span>
   );
 }
