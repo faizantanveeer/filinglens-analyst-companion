@@ -33,6 +33,7 @@ cloud rerank threshold (`MIN_RERANK_SCORE=0.1`, Jina's 0–1 scale) still needs 
 - **Mode and runtime:** `DEPLOY_MODE=cloud`, `DATA_DIR=/tmp/filinglens`, `PARSE_WORKERS=1`, `MAX_UPLOAD_MB=20`, `MIN_RERANK_SCORE=0.1`
 - **CORS:** `FRONTEND_ORIGIN=https://filinglens-analyst-companion.vercel.app`, and `FRONTEND_ORIGIN_REGEX` for this project's preview URLs
 - **Secrets (stored as *sensitive*):** `DATABASE_URL`, `QDRANT_URL`, `QDRANT_API_KEY`, `JINA_API_KEY`
+- **Accounts:** `ADMIN_EMAILS` (comma-separated; these accounts get the admin role on sign-up or log-in). Optional overrides: `GUEST_QUESTIONS`, `USER_QUESTIONS_PER_MONTH`, `USER_DOCUMENTS`, …
 
 **`filinglens-analyst-companion`** (Next.js, root dir `frontend`): `NEXT_PUBLIC_API_URL=https://filinglens-api.vercel.app`.
 
@@ -44,6 +45,8 @@ cloud rerank threshold (`MIN_RERANK_SCORE=0.1`, Jina's 0–1 scale) still needs 
 - **Sample document:** it's already indexed in the cloud services. To re-seed, run
   `DEPLOY_MODE=cloud PARSE_WORKERS=1 DATA_DIR=/tmp/fl python -m backend.app.seed eval/data/report.pdf`, with the cloud credentials in `.env`.
 - **Uploads:** the browser sends files in ≤ 4 MB pieces (`/uploads/...`) to stay under Vercel's 4.5 MB request limit.
+- **Schema changes** (new columns such as `sessions.pinned`) are applied automatically when the API starts; there's no migration step.
+- **`main` is protected:** open a pull request from `dev` and merge it to release.
 
 ## Other hosting options (kept, not active)
 

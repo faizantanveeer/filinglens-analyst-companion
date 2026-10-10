@@ -195,7 +195,7 @@ Each phase lists **Must** items (needed for the demo) and **Done when** criteria
 - **UI:** the sidebar closes fully (Ctrl/⌘+B); the composer stays pinned and auto-scroll follows to the true bottom; charts use a proportional year axis, a validated palette, a legend and a table view; mobile request list on Insights.
 
 ### Chat sessions, context management and memory
-- **Sessions** (`backend/app/sessions.py`, SQLite): every chat is a server-side session with saved turns (answer, citations, chart, suggestions, metadata). Sidebar history grouped by date, with search over titles and message text, rename and delete (cascades to messages). URL `/c/<id>`. Sessions are scoped to an anonymous per-browser `X-Client-Id`; this is isolation, not authentication.
+- **Sessions** (`backend/app/sessions.py`, SQLite): every chat is a server-side session with saved turns (answer, citations, chart, suggestions, metadata). Sidebar history grouped by date, with search over titles and message text, rename and delete (cascades to messages). URL `/c/<id>`. Sessions were first scoped to an anonymous per-browser `X-Client-Id`; accounts (below) replaced that.
 - **Context management:** conversation history only feeds the small-model rewrite step. The grounded answer sees the standalone question plus chunks. The last 4 turns go in verbatim (each trimmed to 600 chars); older turns are folded into a ≤150-word rolling summary in batches of 2, in a background task after the answer streams. Prompt size stays bounded regardless of chat length.
 - **Cross-chat memory** (`backend/app/memory.py`, opt-in, off by default): the small model extracts durable user facts and preferences from questions (never document facts). Memories are stored with local embeddings, de-duplicated (cosine ≥ 0.9), capped at 50, injection-checked and PII-redacted. The top 3 relevant (cosine ≥ 0.5) go into the answer prompt as style-only preferences; verification still rejects unsupported numbers. Personalised answers bypass the shared semantic cache. Memories are managed (list, delete, clear) in Settings and never mix into another session's history.
 
@@ -203,10 +203,25 @@ Each phase lists **Must** items (needed for the demo) and **Done when** criteria
 - **Faster queries:** rerank pool 20 → 10, measured: 2.5 s → 1.0 s per question and Hit@5 0.88 → 0.94. Models are warmed at API start-up, and the query embedding is cached and reused by cache, retrieval and memory. See `eval/TUNING.md`.
 - **Faster ingestion:** page-parallel parsing (4 processes) overlapped batch by batch with embedding and indexing: 208 s → 129 s for the 152-page report. Live progress (stage and percentage) is shown on the Documents page.
 - **More document types, no new dependency:** PDF, HTML/HTM (SEC filings), TXT/MD and EPUB through MuPDF, with content sniffing on upload.
-- **SEC EDGAR import:** ticker plus form (10-K/10-Q/20-F/40-F) fetches the latest filing from fixed sec.gov hosts and indexes it.
 - **Page preview:** the source panel renders the real page with the cited passage highlighted. Non-PDF documents are converted to PDF once; renders are cached on disk.
 - **Plain-English key terms:** an optional `key_terms` field in the answer JSON, rendered as "General definitions, not from your documents". Any definition containing a digit is dropped server-side, so figures only ever come from cited sources.
 - **Workflow:** "Executive briefing" Deep-research starter, per-chat document scope picker, Markdown export of a thread.
+
+### Deployment: cloud mode on Vercel
+- `DEPLOY_MODE=cloud` swaps local services for hosted ones: Postgres (Neon) for SQLite, Qdrant Cloud for embedded Qdrant, Jina for fastembed, and a slim OpenAI-compatible client for LiteLLM. Files are stored in Postgres in 4 MB pieces and indexed inside the request (≤ 300 s). See `docs/DEPLOY.md`.
+
+### Accounts, credits and RBAC
+- Email + password accounts (scrypt), opaque bearer tokens stored as SHA-256, roles guest / user / admin (`ADMIN_EMAILS`).
+- Every visitor starts as a guest: 5 questions and 1 document. Sign-up upgrades the guest in place; logging in merges guest data. Accounts get 200 questions a month and 20 documents.
+- All documents, chats, memories and traces are owner-scoped; other users' ids return 404. Credits are charged atomically and refunded on failure; 402 opens the sign-up dialog.
+- Rate limits on guest creation and log-in; CSP and security headers on the UI and API.
+
+### UI refinements
+- Collapsed sidebar shows an icon rail. A profile icon menu (email, Settings, Log out) replaces the email in the sidebar.
+- Each chat has a ⋯ menu (Pin/Unpin, Rename, Delete); pinned chats have their own section.
+- Usage alerts: toasts when session tokens or estimated spend pass thresholds set in Settings, and at 80% of the token budget. Cloud mode estimates cost from a list-price table.
+- Log-out clears the API keys from the tab; signing up or logging in from a guest keeps them.
+- The SEC EDGAR import was removed; documents come from uploads only. The header shows API status only when the API is unreachable.
 
 ---
 

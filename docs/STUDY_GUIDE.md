@@ -11,8 +11,8 @@ the numbers behind it, and the questions you're likely to get. File paths point 
 > the page it came from, and you can open that page with the passage highlighted. Arithmetic is done in Python,
 > not by the LLM. A deterministic verifier checks that every number in an answer appears in a cited source,
 > and when the documents don't support an answer, it says "not found" instead of guessing.
-> Retrieval is hybrid (dense plus BM25, fused with Reciprocal Rank Fusion) with a cross-encoder reranker, all
-> running locally on CPU. Only the final answer uses the user's own API key. I built an evaluation set
+> Retrieval is hybrid (dense plus BM25, fused with Reciprocal Rank Fusion) with a cross-encoder reranker, running
+> locally on CPU (or on hosted Jina models in the Vercel deployment). Only the final answer uses the user's own API key. I built an evaluation set
 > and used it to tune the system: one change made retrieval 2.4× faster *and* more accurate (Hit@5 0.88 → 0.94).
 
 Say what it is, what makes it trustworthy (citations, Python math, verifier, abstention), and one measured result.
@@ -24,7 +24,8 @@ Say what it is, what makes it trustworthy (citations, Python math, verifier, abs
 ```
 Browser (Next.js)                    FastAPI (backend/app/main.py)
   Chat ── SSE ───────────────────▶  /chat → pipeline/orchestrator.run()
-  Documents ── upload / EDGAR ───▶  /documents → documents.ingest() (background)
+  Documents ── chunked upload ───▶  /uploads → documents.ingest() (background locally, inline on Vercel)
+  Sign up / log in ──────────────▶  /auth/* → auth.py (guest trial, credits, roles)
   Settings (keys in sessionStorage)  /sessions, /memories, /insights, /settings/validate
 ```
 
@@ -46,7 +47,7 @@ Browser (Next.js)                    FastAPI (backend/app/main.py)
 
 ## 3. Ingestion: from file to searchable chunks
 
-**Files:** `ingest/parser.py`, `ingest/chunker.py`, `ingest/indexer.py`, `documents.py`, `ingest/edgar.py`
+**Files:** `ingest/parser.py`, `ingest/chunker.py`, `ingest/indexer.py`, `documents.py`
 
 | Step | What happens | Why |
 |---|---|---|
@@ -139,7 +140,7 @@ number never appears on screen. The trade-off is a later first token.
 
 ## 7. Sessions, long-chat context and memory
 
-- **Sessions** (`sessions.py`) are stored in SQLite and scoped by an anonymous per-browser `X-Client-Id`. That's isolation, not authentication.
+- **Sessions** (`sessions.py`) belong to the signed-in account (or guest) and every query is scoped to the owner. Chats can be pinned (a `pinned` column; pinned chats list first and get their own sidebar section), renamed and deleted.
 - **Context management:** history only feeds the *rewrite* step. The last 4 turns go in verbatim (each trimmed to 600 characters);
   older turns are folded, in batches of 2, into a summary of at most 150 words by a background task after the answer streams.
   Prompt size stays bounded however long the chat is.
@@ -158,8 +159,10 @@ number never appears on screen. The trade-off is a later first token.
 | Prompt injection in the question | Regex guard before any LLM call; refusal costs 0 tokens |
 | Injection inside a document or web page | Context treated as data; tags neutralised; suspicious chunks flagged; verifier blocks invented numbers |
 | API key leakage | Key lives only in `sessionStorage`; sent per request as a header; never logged or stored; masked in errors |
-| SSRF | Azure endpoints restricted to Azure domains; EDGAR uses fixed sec.gov URLs; Tavily is a fixed host |
-| Cross-user data in a shared demo | Sessions and memories scoped by client id; CORS limited to the frontend origin (plus this machine's own LAN IPs) |
+| SSRF | Azure endpoints restricted to Azure domains; Tavily is a fixed host; no user-supplied URLs are fetched |
+| Cross-user data | Accounts with hashed bearer tokens; documents, chats, memories and traces scoped to the owner; other users' ids return 404; CORS limited to the frontend origin |
+| Account abuse | scrypt passwords, login rate limit, guest-creation limit per IP, generic login errors, atomic credit charging |
+| Clickjacking / XSS impact | CSP, `X-Frame-Options: DENY`, `nosniff`; keys never in cookies or localStorage and cleared on log-out |
 | Malicious uploads | Extension allow-list plus content sniffing (PDF magic bytes, HTML markers, UTF-8 check), size limit |
 | Arithmetic exploits | AST whitelist calculator, exponent cap, length cap |
 
@@ -191,7 +194,7 @@ LLM key (`EVAL_PROVIDER`, `EVAL_LLM_KEY`, …). Say so honestly if asked.
 
 1. **No agent framework:** the pipeline is linear with one retry loop. Plain functions are easier to test, trace and explain.
 2. **Local embeddings and reranker:** no per-query API cost and no data sent out for indexing; the price is CPU latency.
-3. **Embedded Qdrant and SQLite:** zero-ops for a demo. To scale: a Qdrant server, Postgres, workers behind a queue.
+3. **Embedded Qdrant and SQLite locally, hosted services on Vercel:** the same code runs both ways behind small adapters (`db.py`, `embeddings.py`, `llm/gateway.py`). To scale further: workers behind a queue instead of inline indexing.
 4. **Verify before streaming:** trust over perceived speed.
 5. **Small sample:** 17 answerable questions, so treat differences under about 0.06 as noise. The next step would be a larger set.
 
@@ -206,6 +209,8 @@ LLM key (`EVAL_PROVIDER`, `EVAL_LLM_KEY`, …). Say so honestly if asked.
 - **How do you handle prompt injection from documents?** Chunks are data inside tags, tag characters are neutralised, suspicious chunks are flagged, and the verifier stops injected "facts" containing numbers from reaching the user.
 - **What fails today?** Some complex tables parse badly (page 19); a missing year passes the retrieval gate; HTML layout clips some labels; answer-level metrics aren't measured yet.
 - **Why not LangChain?** A linear pipeline doesn't need it. Explicit functions made tracing, testing and tuning easier.
+- **How do you keep users' data apart?** Every row has an owner; every query filters on it; another user's id returns 404. Tokens are random, stored only as hashes, and revoked on log-out. Guests are real (limited) users, so sign-up upgrades them in place and nothing has to be copied.
+- **How do you stop free-tier abuse?** Credits charged atomically in one UPDATE (no race), refunded on failure; per-IP guest limits; login rate limiting.
 - **How do long chats stay cheap?** Only the small rewrite step sees history, as a rolling summary plus 4 turns. The answer sees the standalone question and documents.
 
 ---
@@ -217,5 +222,6 @@ LLM key (`EVAL_PROVIDER`, `EVAL_LLM_KEY`, …). Say so honestly if asked.
 3. `pipeline/answer.py`, `verify.py`, `calculator.py`: grounding and anti-hallucination.
 4. `ingest/parser.py`, `ingest/chunker.py`, `documents.py`: ingestion.
 5. `sessions.py`, `memory.py`: context and memory.
-6. `eval/run_eval.py` and `eval/TUNING.md`: how the numbers were produced.
-7. Frontend: `components/chat/chat-provider.tsx` (SSE client) and `lib/api.ts` (the one API client).
+6. `auth.py`: accounts, tokens, credits and roles; `db.py` for the SQLite/Postgres adapter.
+7. `eval/run_eval.py` and `eval/TUNING.md`: how the numbers were produced.
+8. Frontend: `components/chat/chat-provider.tsx` (SSE client) `lib/api.ts` (the one API client, with the bearer token) and `components/auth/auth-provider.tsx` (who is signed in).
