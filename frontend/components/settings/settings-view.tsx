@@ -199,6 +199,7 @@ export function SettingsView() {
                   type="url"
                   value={settings.azure_endpoint}
                   placeholder="https://<resource>.openai.azure.com"
+                  autoComplete="off"
                   spellCheck={false}
                   onChange={(e) => update({ azure_endpoint: e.target.value })}
                 />

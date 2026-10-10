@@ -3,7 +3,9 @@
  *
  * - API keys live ONLY in sessionStorage: gone when the tab closes, never in localStorage
  *   or cookies, never logged. They are sent per request as X-LLM-Key / X-LLM-Fallback-Key.
- * - Non-secret preferences (provider, models, toggles) go to localStorage for convenience.
+ * - Non-secret preferences (provider, models, endpoint, toggles) belong to whoever is using the app:
+ *   a signed-in account keeps them in localStorage under its own id; a guest keeps them in
+ *   sessionStorage, so every new guest, tab or window starts from clean defaults.
  */
 
 "use client";
@@ -60,7 +62,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   explain_terms: true,
 };
 
-const PREFS = "filinglens.settings";
+const PREFS = "filinglens.settings"; // guest: sessionStorage; account: localStorage + ".<user id>"
 const API_KEY = "filinglens.llmKey";
 const FALLBACK_KEY = "filinglens.llmFallbackKey";
 const SEARCH_KEY = "filinglens.searchKey";
@@ -93,10 +95,37 @@ function write(storage: "local" | "session", key: string, value: string | null) 
   notify();
 }
 
+// Whose settings are active. Until /auth/me answers, treat the visitor as a guest.
+let accountId: string | null = null;
+const prefsLocation = (): ["local" | "session", string] => (accountId ? ["local", `${PREFS}.${accountId}`] : ["session", PREFS]);
+
+// Older versions kept one shared copy in localStorage, which leaked one visitor's provider and
+// endpoint to the next. Drop it.
+if (typeof window !== "undefined") {
+  try {
+    window.localStorage.removeItem(PREFS);
+  } catch {}
+}
+
+/** Switch settings to this account (or to the tab's guest settings when null). A guest who signs up
+ *  or logs in into an account with nothing saved yet keeps the choices made during the trial. */
+export function setSettingsAccount(id: string | null) {
+  if (id === accountId) return;
+  if (id && !read("local", `${PREFS}.${id}`)) {
+    const guest = read("session", PREFS);
+    if (guest) write("local", `${PREFS}.${id}`, guest);
+  }
+  accountId = id;
+  notify();
+}
+
+/** Forget the guest's settings in this tab (on log-out, so the next guest starts clean). */
+export const clearGuestSettings = () => write("session", PREFS, null);
+
 let cachedRaw: string | null | undefined;
 let cachedSettings: AppSettings = DEFAULT_SETTINGS;
 export function getSettings(): AppSettings {
-  const raw = read("local", PREFS);
+  const raw = read(...prefsLocation());
   if (raw !== cachedRaw) {
     cachedRaw = raw;
     try {
@@ -109,7 +138,7 @@ export function getSettings(): AppSettings {
 }
 
 export function saveSettings(next: AppSettings) {
-  write("local", PREFS, JSON.stringify(next));
+  write(...prefsLocation(), JSON.stringify(next));
 }
 
 export const getApiKey = () => read("session", API_KEY);
