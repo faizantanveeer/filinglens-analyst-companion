@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 import { AuthDialog } from "@/components/auth/auth-dialog";
 import { api, ApiError, AUTH_EVENT, CREDITS_EVENT, ensureSession, setToken, type Me } from "@/lib/api";
-import { resetTokensUsed, setApiKey, setFallbackKey, setSearchKey } from "@/lib/settings";
+import { clearGuestSettings, resetTokensUsed, setApiKey, setFallbackKey, setSearchKey, setSettingsAccount } from "@/lib/settings";
 
 type Mode = "signup" | "login";
 
@@ -30,7 +30,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       await ensureSession();
-      setMe(await api.me());
+      const next = await api.me();
+      setSettingsAccount(next.is_guest ? null : next.id); // each account has its own settings; guests get fresh ones per tab
+      setMe(next);
     } catch (err) {
       if (err instanceof ApiError && err.status !== 0) toast.error(err.message);
     }
@@ -61,6 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setFallbackKey(null);
     setSearchKey(null);
     resetTokensUsed();
+    setSettingsAccount(null);
+    clearGuestSettings(); // the next guest in this tab starts from defaults
     setToken(null); // a fresh guest session starts on the next request
     toast.success("Logged out.");
   }, []);
