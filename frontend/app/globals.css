@@ -14,17 +14,17 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.55 0.11 190);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: oklch(0.945 0 0);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.5 0 0);
-  --accent: oklch(0.96 0.02 190);
-  --accent-foreground: oklch(0.3 0.06 190);
+  --muted: oklch(0.945 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.92 0.045 190);
+  --accent-foreground: oklch(0.28 0.07 190);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.89 0 0);
+  --input: oklch(0.87 0 0);
   --ring: oklch(0.55 0.11 190);
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(0.98 0 0);
   /* Chart accent, validated (dataviz validator) against the light surface */
   --chart-1: #009ca3;
   --chart-grid: oklch(0.94 0 0);
