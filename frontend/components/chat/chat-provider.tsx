@@ -41,7 +41,7 @@ type ChatContextValue = {
   setDeep: (v: boolean) => void;
   docScope: string[] | null; // documents this chat searches; null = all
   setDocScope: (ids: string[] | null) => void;
-  send: (question: string, opts?: { deep?: boolean }) => Promise<void>;
+  send: (question: string, opts?: { deep?: boolean; fresh?: boolean }) => Promise<void>; // fresh: skip the answer cache (Retry)
   stop: () => void;
   newChat: () => void;
   openSession: (id: string) => Promise<void>;
@@ -129,7 +129,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const send = useCallback(
-    async (question: string, opts?: { deep?: boolean }) => {
+    async (question: string, opts?: { deep?: boolean; fresh?: boolean }) => {
       const q = question.trim();
       if (!q || busy) return;
       const useDeep = opts?.deep ?? deep;
@@ -156,7 +156,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           session_id: sid,
           deep: useDeep,
           doc_ids: docScope?.length ? docScope : null,
-          settings: toRequestSettings(getSettings(), getTokensUsed()),
+          settings: { ...toRequestSettings(getSettings(), getTokensUsed()), ...(opts?.fresh ? { use_cache: false } : {}) },
         };
         for await (const ev of api.chat(body, ctrl.signal)) {
           switch (ev.event) {

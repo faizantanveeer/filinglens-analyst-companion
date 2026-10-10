@@ -17,9 +17,8 @@ import {
   ShieldAlert,
   Sparkles,
   Telescope,
-  Brain,
   BookOpen,
-  Zap,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -117,9 +116,9 @@ function SourceCards({ citations, onOpen }: { citations: Citation[]; onOpen: (c:
   );
 }
 
-function Actions({ m }: { m: Message }) {
+/** Under every finished answer: Copy and Retry, nothing else. */
+function Actions({ m, onRetry }: { m: Message; onRetry?: () => void }) {
   const [copied, setCopied] = useState(false);
-  const d = m.meta;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(m.content.replace(/\s*\[[CW]\d+\]/g, ""));
@@ -129,38 +128,20 @@ function Actions({ m }: { m: Message }) {
       toast.error("Couldn't copy to the clipboard.");
     }
   };
-  if (!d) return null;
-  const tokens = d.usage.input_tokens + d.usage.output_tokens;
+  if (m.status === "streaming") return null;
+  const btn =
+    "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50";
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
-      <button
-        type="button"
-        onClick={copy}
-        className="-ml-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-        {copied ? "Copied" : "Copy"}
+    <div className="mt-5 -ml-1.5 flex items-center gap-1 border-t pt-3 text-xs text-muted-foreground">
+      {m.content && (
+        <button type="button" onClick={copy} className={btn}>
+          {copied ? <Check className="size-3.5 text-primary" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      )}
+      <button type="button" onClick={onRetry} disabled={!onRetry} className={btn} title="Ask this question again for a fresh answer">
+        <RotateCcw className="size-3.5" aria-hidden /> Retry
       </button>
-      {d.cached && (
-        <span className="inline-flex items-center gap-1 font-medium text-primary">
-          <Zap className="size-3" aria-hidden /> Cached
-        </span>
-      )}
-      {d.memories_used && d.memories_used.length > 0 && (
-        <span className="inline-flex items-center gap-1 text-primary" title={`Shaped by: ${d.memories_used.join(" · ")}`}>
-          <Brain className="size-3" aria-hidden /> Used {d.memories_used.length} memor{d.memories_used.length === 1 ? "y" : "ies"}
-        </span>
-      )}
-      {d.model && <span>{d.model.replace(/^[a-z]+\//, "")}</span>}
-      <span>{tokens.toLocaleString()} tokens</span>
-      {d.usage.cost > 0 && <span>${d.usage.cost.toFixed(4)}</span>}
-      <span>{(d.latency_ms / 1000).toFixed(1)}s</span>
-      {d.verification === "retry_pass" && <span>verified on retry</span>}
-      {d.judge && !d.judge.faithful && (
-        <span className="inline-flex items-center gap-1 text-destructive" title={d.judge.reason}>
-          <AlertCircle className="size-3" aria-hidden /> Judge flagged this answer
-        </span>
-      )}
     </div>
   );
 }
@@ -211,7 +192,7 @@ export function Related({ items, onPick, disabled }: { items: string[]; onPick: 
 }
 
 /** One question and its answer, laid out like a short research note rather than chat bubbles. */
-export function Turn({ question, m, onCite }: { question: string; m?: Message; onCite: (c: Citation) => void }) {
+export function Turn({ question, m, onCite, onRetry }: { question: string; m?: Message; onCite: (c: Citation) => void; onRetry?: () => void }) {
   const citations = m?.citations ?? [];
   const working = m?.status === "streaming" && !m.content;
   const notice = m?.answerType && m.answerType in NOTICE ? NOTICE[m.answerType as keyof typeof NOTICE] : null;
@@ -231,7 +212,12 @@ export function Turn({ question, m, onCite }: { question: string; m?: Message; o
         {!m ? null : m.status === "error" ? (
           <div role="alert" className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-            <p className="min-w-0 wrap-anywhere">{m.error}</p>
+            <p className="min-w-0 flex-1 wrap-anywhere">{m.error}</p>
+            {onRetry && (
+              <button type="button" onClick={onRetry} className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium hover:bg-destructive/10">
+                <RotateCcw className="size-3.5" aria-hidden /> Retry
+              </button>
+            )}
           </div>
         ) : working ? (
           <>
@@ -250,7 +236,7 @@ export function Turn({ question, m, onCite }: { question: string; m?: Message; o
             </div>
             <p className="mt-2 text-[15px] wrap-break-word text-muted-foreground">{m.content}</p>
             {notice.hint && <p className="mt-1 text-sm text-muted-foreground">{notice.hint}</p>}
-            <Actions m={m} />
+            <Actions m={m} onRetry={onRetry} />
           </div>
         ) : (
           <>
@@ -290,7 +276,7 @@ export function Turn({ question, m, onCite }: { question: string; m?: Message; o
                   Computed in Python: {m.meta.calculation.label} = {m.meta.calculation.value.toLocaleString()} {m.meta.calculation.unit}
                 </p>
               )}
-              <Actions m={m} />
+              <Actions m={m} onRetry={onRetry} />
             </section>
           </>
         )}

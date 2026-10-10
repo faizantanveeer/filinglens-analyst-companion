@@ -131,7 +131,7 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
     document.getElementById(`turn-${lastTurnId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [lastTurnId, loading]);
 
-  const submit = (text: string, opts?: { deep?: boolean }) => {
+  const submit = (text: string, opts?: { deep?: boolean; fresh?: boolean }) => {
     if (disabled || busy || !text.trim()) return;
     setDraft("");
     followRef.current = true;
@@ -275,7 +275,12 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
         )}
         {turns.map((t, i) => (
           <div key={t.q.id} id={`turn-${t.q.id}`} className={i > 0 ? "scroll-mt-20 border-t pt-10" : "scroll-mt-20"}>
-            <Turn question={t.q.content} m={t.a} onCite={setSource} />
+            <Turn
+              question={t.q.content}
+              m={t.a}
+              onCite={setSource}
+              onRetry={disabled || busy ? undefined : () => submit(t.q.content, { deep: t.a?.deep ?? false, fresh: true })}
+            />
           </div>
         ))}
         {lastAnswer?.status === "done" && lastAnswer.suggestions?.length ? (
