@@ -10,8 +10,8 @@ from backend.app.obs.tracer import Trace
 
 
 def test_cors_allows_vercel_production_and_previews_only(monkeypatch):
-    monkeypatch.setenv("FRONTEND_ORIGIN", "https://filinglens.vercel.app")
-    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"^https://filinglens(-[a-z0-9-]+)?\.vercel\.app$")
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://fincite.vercel.app")
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"^https://fincite(-[a-z0-9-]+)?\.vercel\.app$")
     from backend.app import config
 
     importlib.reload(config)
@@ -26,10 +26,10 @@ def test_cors_allows_vercel_production_and_previews_only(monkeypatch):
             )
             return r.status_code, r.headers.get("access-control-allow-origin")
 
-        assert preflight("https://filinglens.vercel.app") == (200, "https://filinglens.vercel.app")
-        assert preflight("https://filinglens-git-main-faizan.vercel.app")[0] == 200  # preview deployment
+        assert preflight("https://fincite.vercel.app") == (200, "https://fincite.vercel.app")
+        assert preflight("https://fincite-git-main-faizan.vercel.app")[0] == 200  # preview deployment
         assert preflight("https://evil.vercel.app")[0] == 400
-        assert preflight("https://filinglens.vercel.app.evil.com")[0] == 400
+        assert preflight("https://fincite.vercel.app.evil.com")[0] == 400
     finally:
         monkeypatch.undo()
         importlib.reload(config)

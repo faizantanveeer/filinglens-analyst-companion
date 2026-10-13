@@ -1,4 +1,4 @@
-# FilingLens study guide
+# FinCite study guide
 
 A guided tour of the system for interview preparation: what each part does, why it was built that way,
 the numbers behind it, and the questions you're likely to get. File paths point at the code to read next.
@@ -7,7 +7,7 @@ the numbers behind it, and the questions you're likely to get. File paths point 
 
 ## 1. The 60-second pitch
 
-> FilingLens answers plain-English questions about company annual reports and SEC filings. Every answer cites
+> FinCite answers plain-English questions about company annual reports and SEC filings. Every answer cites
 > the page it came from, and you can open that page with the passage highlighted. Arithmetic is done in Python,
 > not by the LLM. A deterministic verifier checks that every number in an answer appears in a cited source,
 > and when the documents don't support an answer, it says "not found" instead of guessing.
@@ -26,22 +26,29 @@ Browser (Next.js)                    FastAPI (backend/app/main.py)
   Chat ── SSE ───────────────────▶  /chat → pipeline/orchestrator.run()
   Documents ── chunked upload ───▶  /uploads → documents.ingest() (background locally, inline on Vercel)
   Sign up / log in ──────────────▶  /auth/* → auth.py (guest trial, credits, roles)
-  Settings (keys in sessionStorage)  /sessions, /memories, /insights, /settings/validate
+  Settings (keys in sessionStorage)  /sessions, /memories, /insights, /settings/validate*
 ```
 
 **Request path** (`pipeline/orchestrator.py`, in order):
 
+0. **Budget check:** if the browser session's token budget (set in Settings) is used up, stop before any work.
 1. **Input guardrails** (`guard_input.py`): length cap, prompt-injection patterns, PII redaction. Free, with no LLM.
-2. **Rewrite** (`rewrite.py`): turns a follow-up into a standalone question, using the session summary plus recent turns. Small model.
-3. **Semantic cache** (`cache/semantic_cache.py`): cosine ≥ 0.95 on the standalone query, same document set. A hit costs 0 tokens.
-4. **Router** (`router.py`): heuristics, then a small-model JSON call → intent, needs_calc, needs_chart, complexity → model tier.
-5. **Retrieval** (`retrieval/hybrid.py`): dense top 20 plus BM25 top 20, fused with RRF (k = 60).
-6. **Rerank** (`retrieval/rerank.py`): cross-encoder over the top 10 fused candidates, keep top_k (5). **Abstain** if the best score is below the threshold.
-7. Optional **chart** (`chart.py`) and **calculator** (`calculator.py`): the LLM proposes numbers, Python checks and computes.
-8. **Answer** (`answer.py`): JSON `{answer, citations, unanswerable, follow_ups, key_terms}`, grounded only in `<context>`.
-9. **Verify** (`verify.py`): citations must be retrieved chunks; every number must appear in a cited chunk. One stricter retry, otherwise "not found".
-10. **Web fallback** (`web_search.py`, optional): only when steps 4–9 decided the documents can't answer.
-11. **Stream** typed SSE events (`step`, `token`, `chart`, `citations`, `suggestions`, `done`, `error`), then **record** the turn, the trace, and the background summary and memory work.
+2. **Rewrite** (`rewrite.py`): turns a follow-up into a standalone question, using the session summary plus recent turns. Small model; skipped on the first turn.
+3. **Memory lookup** (`memory.py`, opt-in): up to 3 relevant user preferences, found by local embedding similarity (no tokens).
+4. **Semantic cache** (`cache/semantic_cache.py`): cosine ≥ 0.95 on the standalone query, same document set (Deep research has its own rows). A hit costs 0 tokens. Personalised answers skip the shared cache.
+5. **Router** (`router.py`): free heuristics (greetings, very long questions), then a small-model JSON call → intent, needs_calc, needs_chart, complexity → model tier. Conversational messages (`chat`: greetings, questions about the assistant or the loaded documents, feedback, requests too vague to search) skip retrieval and get a short reply from `converse.py`, which may ask one clarifying question; out-of-scope questions go to web search if a key is set, otherwise a polite decline from the same step. Those replies may not contain figures: a code check swaps in a safe reply if one appears.
+6. **Retrieval** (`retrieval/hybrid.py`): dense top 20 plus BM25 top 20, fused with RRF (k = 60), using the query with presentation words ("plot", "show me a chart of") removed.
+   **Deep research** (`deep.py`) replaces this: the small model plans up to 4 sub-questions, each is retrieved and reranked (4 chunks each), and the best 10 chunks are merged.
+7. **Rerank** (`retrieval/rerank.py`): cross-encoder over the top 10 fused candidates, keep top_k (5). **Abstain** if the best score is below the threshold.
+8. Optional **chart** (`chart.py`) and **calculator** (`calculator.py`): the LLM proposes numbers, Python checks and computes.
+9. **Answer** (`answer.py`): JSON `{answer, citations, unanswerable, follow_ups, key_terms}`, grounded only in `<context>`.
+10. **Verify** (`verify.py`): citations must be retrieved chunks; every number must appear in a cited chunk. One stricter retry, otherwise "not found". An optional LLM judge rates high-complexity answers.
+11. **Web fallback** (`web_search.py`, optional): only when steps 5–10 decided the documents can't answer. Web results go through the same answer + verify loop and are labelled `[W#]`.
+12. **Stream** typed SSE events (`step`, `token`, `chart`, `citations`, `suggestions`, `done`, `error`), then **record** the turn, the trace, and the summary and memory work (a background thread locally, inside the request on Vercel).
+
+**Two deployment modes, one codebase.** `DEPLOY_MODE=local` (default): SQLite, embedded Qdrant, fastembed models,
+LiteLLM, background indexing. `DEPLOY_MODE=cloud` (Vercel): Postgres, Qdrant Cloud, Jina embeddings and reranking,
+a pure-Python BM25, the slim `openai` client, and indexing inside the request. See `docs/DEPLOY.md`.
 
 ---
 
@@ -86,7 +93,7 @@ but slower. That's why it only sees the fused top 10.
 - Why it got *better*: the right chunk was always within RRF rank 8, so extra candidates were only distractors the reranker could wrongly promote.
 - I chose 10 rather than the best-scoring 6 to keep a margin above the worst observed rank.
 
-**Abstain threshold:** if the best rerank score is below `MIN_RERANK_SCORE` (0.0), return "not found". It was tuned on the
+**Abstain threshold:** if the best rerank score is below `MIN_RERANK_SCORE` (−6.0), return "not found". It was first tuned on the
 golden set: 0.95 abstention accuracy with 0 answerable questions wrongly refused. The one miss ("revenue in 2025")
 shows that topic-matching retrieval can't detect a missing *year*; the answer step and verifier must catch it.
 
@@ -149,6 +156,9 @@ number never appears on screen. The trade-off is a later first token.
   - Memories are embedded locally, de-duplicated at cosine ≥ 0.9, capped at 50, checked for injection and PII-redacted.
   - The top 3 relevant memories enter the answer prompt as **style-only preferences**.
   - Personalised answers bypass the shared cache, and memories never enter another session's history.
+- **Settings in the browser** (`frontend/lib/settings.ts`): API keys only in the tab's `sessionStorage`. Non-secret
+  preferences follow the person: an account keeps them in `localStorage` under its own id, a guest in `sessionStorage`,
+  so a new guest, tab or window starts from clean defaults. The session token is in `localStorage` so it survives reloads.
 
 ---
 
@@ -224,4 +234,5 @@ LLM key (`EVAL_PROVIDER`, `EVAL_LLM_KEY`, …). Say so honestly if asked.
 5. `sessions.py`, `memory.py`: context and memory.
 6. `auth.py`: accounts, tokens, credits and roles; `db.py` for the SQLite/Postgres adapter.
 7. `eval/run_eval.py` and `eval/TUNING.md`: how the numbers were produced.
-8. Frontend: `components/chat/chat-provider.tsx` (SSE client) `lib/api.ts` (the one API client, with the bearer token) and `components/auth/auth-provider.tsx` (who is signed in).
+8. Frontend: `components/chat/chat-provider.tsx` (SSE client), `lib/api.ts` (the one API client, with the bearer token),
+   `lib/settings.ts` (where keys and preferences are stored) and `components/auth/auth-provider.tsx` (who is signed in).

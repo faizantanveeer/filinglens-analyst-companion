@@ -32,7 +32,7 @@ export function ApiStatus() {
         setSince((s) => s ?? Date.now());
         if (!warned) {
           // The hosted backend runs on a free tier that sleeps when idle; say so instead of just "error".
-          toast.info("Connecting to the FilingLens API… If it was asleep, it can take a minute or two to wake up.", { duration: 8000 });
+          toast.info("Connecting to the FinCite API… If it was asleep, it can take a minute or two to wake up.", { duration: 8000 });
           warned = true; // one toast per outage, not one per retry
         }
         timer = setTimeout(check, RETRY_OFFLINE_MS);

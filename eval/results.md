@@ -1,4 +1,4 @@
-# FilingLens evaluation results
+# FinCite evaluation results
 
 Generated 2026-10-09 09:52 UTC on `report.pdf` with 20 golden questions.
 Config: top_k=5, MIN_RERANK_SCORE=0.0, answers not evaluated

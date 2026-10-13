@@ -31,14 +31,14 @@ def find_by_hash(digest: str, owner_id: str | None = None) -> dict | None:
     return dict(row) if row else None
 
 
-def register(doc_id: str, filename: str, digest: str, filetype: str = "pdf", source_url: str | None = None, owner_id: str | None = None) -> dict:
+def register(doc_id: str, filename: str, digest: str, filetype: str = "pdf", owner_id: str | None = None) -> dict:
     """owner_id None = public (only for the protected sample); every upload has an owner."""
     now = datetime.now(timezone.utc).isoformat()
     with tx() as c:
         c.execute(
-            "INSERT INTO documents (id, filename, sha256, status, created_at, filetype, stage, source_url, owner_id) "
-            "VALUES (?, ?, ?, 'processing', ?, ?, 'Queued', ?, ?)",
-            (doc_id, filename, digest, now, filetype, source_url, owner_id),
+            "INSERT INTO documents (id, filename, sha256, status, created_at, filetype, stage, owner_id) "
+            "VALUES (?, ?, ?, 'processing', ?, ?, 'Queued', ?)",
+            (doc_id, filename, digest, now, filetype, owner_id),
         )
     return get(doc_id)  # type: ignore[return-value]
 
@@ -86,11 +86,6 @@ def can_delete(doc: dict | None, user: dict) -> bool:
 def count_owned(owner_id: str) -> int:
     with tx() as c:
         return c.execute("SELECT COUNT(*) AS n FROM documents WHERE owner_id = ?", (owner_id,)).fetchone()["n"]
-
-
-def ready_ids() -> list[str]:
-    with tx() as c:
-        return [r["id"] for r in c.execute("SELECT id FROM documents WHERE status = 'ready' ORDER BY id")]
 
 
 def filetype_of(doc_id: str) -> str:

@@ -33,15 +33,113 @@ export type AppSettings = {
   explain_terms: boolean; // plain-English key terms under answers
 };
 
-export const PROVIDERS: { value: Provider; label: string; small: string; large: string }[] = [
-  { value: "openai", label: "OpenAI", small: "gpt-5-mini", large: "gpt-5" },
-  // Azure: "models" are your deployment names; these are just common defaults.
-  { value: "azure", label: "Azure OpenAI", small: "gpt-4o-mini", large: "gpt-4o" },
-  { value: "anthropic", label: "Anthropic", small: "claude-haiku-4-5", large: "claude-sonnet-5-5" },
-  { value: "gemini", label: "Google Gemini", small: "gemini-2.5-flash", large: "gemini-2.5-pro" },
-  { value: "groq", label: "Groq", small: "llama-3.1-8b-instant", large: "llama-3.3-70b-versatile" },
-  { value: "ollama", label: "Ollama (local)", small: "llama3.1", large: "llama3.1" },
+export type ModelOption = { id: string; note: string };
+
+/**
+ * Suggested models per provider (checked against each provider's docs, October 2026). Users can also
+ * type any name, or load the exact list their key can use (Settings → "Load from your account").
+ * `small` / `large` are the defaults for the two tiers.
+ */
+export const PROVIDERS: { value: Provider; label: string; small: string; large: string; models: ModelOption[] }[] = [
+  {
+    value: "openai",
+    label: "OpenAI",
+    small: "gpt-5.6-luna",
+    large: "gpt-5.6-terra",
+    models: [
+      { id: "gpt-5.6-sol", note: "Flagship, most capable" },
+      { id: "gpt-5.6-terra", note: "Balanced (mini tier)" },
+      { id: "gpt-5.6-luna", note: "Fastest, cheapest (nano tier)" },
+      { id: "gpt-6-luna", note: "GPT-6, efficient" },
+      { id: "gpt-5.5", note: "Previous flagship" },
+      { id: "gpt-5.4-mini", note: "Previous mini" },
+      { id: "gpt-5.4-nano", note: "Previous nano" },
+    ],
+  },
+  {
+    value: "azure",
+    label: "Azure OpenAI",
+    // Azure: "models" are your deployment names; these are the usual names for these models.
+    small: "gpt-5.6-luna",
+    large: "gpt-5.6-terra",
+    models: [
+      { id: "gpt-5.6-sol", note: "Flagship (fewer regions)" },
+      { id: "gpt-5.6-terra", note: "Balanced" },
+      { id: "gpt-5.6-luna", note: "Fastest, cheapest" },
+      { id: "gpt-5.5", note: "Previous flagship" },
+    ],
+  },
+  {
+    value: "anthropic",
+    label: "Anthropic",
+    small: "claude-haiku-4-5",
+    large: "claude-sonnet-5-5",
+    models: [
+      { id: "claude-fable-5-1", note: "Most capable, priciest" },
+      { id: "claude-opus-5-5", note: "Opus, most capable everyday" },
+      { id: "claude-opus-5", note: "Previous Opus" },
+      { id: "claude-opus-4-8", note: "Older Opus" },
+      { id: "claude-sonnet-5-5", note: "Sonnet, fast and capable" },
+      { id: "claude-sonnet-5", note: "Previous Sonnet" },
+      { id: "claude-sonnet-4-6", note: "Older Sonnet" },
+      { id: "claude-haiku-5-5", note: "Haiku, fastest, cheapest" },
+      { id: "claude-haiku-4-5", note: "Previous Haiku" },
+    ],
+  },
+  {
+    value: "gemini",
+    label: "Google Gemini",
+    small: "gemini-3.1-flash-lite",
+    large: "gemini-3.8-flash",
+    models: [
+      { id: "gemini-3.8-flash", note: "Newest Flash, most capable stable" },
+      { id: "gemini-3.6-flash", note: "Previous Flash" },
+      { id: "gemini-3.1-pro-preview", note: "Pro (preview)" },
+      { id: "gemini-3.1-flash-lite", note: "Fastest, cheapest" },
+    ],
+  },
+  {
+    value: "groq",
+    label: "Groq",
+    small: "openai/gpt-oss-20b",
+    large: "openai/gpt-oss-120b",
+    models: [
+      { id: "openai/gpt-oss-120b", note: "Most capable" },
+      { id: "openai/gpt-oss-20b", note: "Fastest" },
+      { id: "qwen/qwen3.8-27b", note: "Qwen (preview)" },
+    ],
+  },
+  {
+    value: "ollama",
+    label: "Ollama (local)",
+    small: "llama3.1",
+    large: "llama3.1",
+    models: [
+      { id: "llama3.1", note: "8B, the most-pulled model" },
+      { id: "llama3.2", note: "3B, small and quick" },
+      { id: "qwen3.6", note: "27B, strong general and coding" },
+      { id: "gpt-oss:20b", note: "OpenAI open weights" },
+      { id: "gemma4", note: "Google, with thinking" },
+      { id: "gemma3", note: "Google, small sizes" },
+      { id: "deepseek-r1", note: "Reasoning" },
+    ],
+  },
 ];
+
+// Earlier default pairs, now retired or about to be. Settings still on one of these exact pairs move
+// to the current defaults; anything the user picked themselves is left alone.
+const OLD_DEFAULTS: Partial<Record<Provider, [string, string][]>> = {
+  openai: [["gpt-5-mini", "gpt-5"]],
+  azure: [["gpt-4o-mini", "gpt-4o"]],
+  gemini: [["gemini-2.5-flash", "gemini-2.5-pro"]],
+  groq: [["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]],
+};
+
+function upgradeDefaults(s: AppSettings): AppSettings {
+  const preset = PROVIDERS.find((p) => p.value === s.provider);
+  const old = OLD_DEFAULTS[s.provider]?.some(([small, large]) => s.small_model === small && s.large_model === large);
+  return preset && old ? { ...s, small_model: preset.small, large_model: preset.large } : s;
+}
 
 export const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
@@ -62,12 +160,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   explain_terms: true,
 };
 
-const PREFS = "filinglens.settings"; // guest: sessionStorage; account: localStorage + ".<user id>"
-const API_KEY = "filinglens.llmKey";
-const FALLBACK_KEY = "filinglens.llmFallbackKey";
-const SEARCH_KEY = "filinglens.searchKey";
-const TOKENS_USED = "filinglens.tokensUsed";
-const COST_USED = "filinglens.costUsed";
+const PREFS = "fincite.settings"; // guest: sessionStorage; account: localStorage + ".<user id>"
+const API_KEY = "fincite.llmKey";
+const FALLBACK_KEY = "fincite.llmFallbackKey";
+const SEARCH_KEY = "fincite.searchKey";
+const TOKENS_USED = "fincite.tokensUsed";
+const COST_USED = "fincite.costUsed";
 
 // ---- tiny external store so every component sees changes immediately ----
 const listeners = new Set<() => void>();
@@ -129,7 +227,7 @@ export function getSettings(): AppSettings {
   if (raw !== cachedRaw) {
     cachedRaw = raw;
     try {
-      cachedSettings = { ...DEFAULT_SETTINGS, ...(raw ? JSON.parse(raw) : {}) };
+      cachedSettings = upgradeDefaults({ ...DEFAULT_SETTINGS, ...(raw ? JSON.parse(raw) : {}) });
     } catch {
       cachedSettings = DEFAULT_SETTINGS;
     }

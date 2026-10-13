@@ -2,8 +2,7 @@
 
     python -m backend.app.seed            # download (if needed) and index the sample, marked protected
 
-The public demo runs this at image build time: free Spaces have no persistent disk, so the
-index is baked into the image instead of being rebuilt (slowly) after every restart.
+For the Vercel deployment, run it once with DEPLOY_MODE=cloud and the cloud credentials (see docs/DEPLOY.md).
 """
 
 import logging
@@ -22,7 +21,7 @@ def fetch_sample(dest: Path) -> Path:
     """Download the sample once. It's a public document, but not redistributed in the repo."""
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(settings.sample_document_url, headers={"User-Agent": "Mozilla/5.0 (FilingLens demo seed)"})
+        req = urllib.request.Request(settings.sample_document_url, headers={"User-Agent": "Mozilla/5.0 (FinCite demo seed)"})
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = resp.read()
         if not data.startswith(b"%PDF"):

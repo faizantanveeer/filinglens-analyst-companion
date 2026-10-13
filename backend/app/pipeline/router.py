@@ -32,9 +32,13 @@ CALC_WORDS = re.compile(
     re.I,
 )
 
-PROMPT = """Classify a question asked about uploaded company annual reports.
+PROMPT = """Classify the user's latest message to an assistant that answers questions about their uploaded company reports.
 - intent: "lookup" (find a fact), "compare" (compare items or periods), "summarize" (overview of a topic),
-  or "out_of_scope" (not answerable from a company's annual report: general knowledge, coding, chit-chat, advice).
+  "chat" (conversational, needs no document search: greetings, thanks, small talk, questions about the assistant
+  or about which documents are loaded, feedback or complaints, or a request too vague to search without first
+  asking the user which metric, period or topic they mean),
+  or "out_of_scope" (a real question that a company report can't answer: general knowledge, coding, personal advice).
+  Any question about the company, its figures, business, people or risks is a document question, not "chat".
 - needs_calc: true if the answer requires arithmetic on reported numbers (growth %, ratio, difference, sum, margin).
 - needs_chart: true if the question asks for a trend, history, breakdown or values across several periods or segments
   that would be clearer as a chart (e.g. "how has X changed since 2019", "plot revenue by segment").
@@ -61,7 +65,7 @@ def route(query: str, cfg: LLMConfig) -> tuple[Route, LLMResult | None]:
     if not query.strip():
         return Route("out_of_scope", False, "low", "small", "heuristic"), None
     if GREETING.match(query):
-        return Route("greeting", False, "low", "small", "heuristic"), None
+        return Route("chat", False, "low", "small", "heuristic"), None
     if len(query) > 400:  # long, multi-part questions: skip the classifier, use the strong model
         return Route("summarize", bool(CALC_WORDS.search(query)), "high", "large", "heuristic", bool(CHART_WORDS.search(query))), None
 

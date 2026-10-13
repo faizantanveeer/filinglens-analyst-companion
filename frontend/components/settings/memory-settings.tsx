@@ -79,7 +79,7 @@ export function MemorySettings() {
             <Brain className="size-4 text-primary" aria-hidden /> Memory
           </CardTitle>
           <CardDescription>
-            Each chat only sees its own history. With cross-chat memory on, FilingLens also remembers lasting preferences you mention
+            Each chat only sees its own history. With cross-chat memory on, FinCite also remembers lasting preferences you mention
             (units, depth, companies you follow) and uses them to shape answers in other chats, never as a source of facts.
           </CardDescription>
         </CardHeader>
@@ -144,7 +144,7 @@ export function MemorySettings() {
             <History className="size-4 text-primary" aria-hidden /> Chat history
           </CardTitle>
           <CardDescription>
-            Chats are saved on the FilingLens server for this browser only. Long chats stay fast: the last 4 exchanges are kept word
+            Chats are saved on the FinCite server for this browser only. Long chats stay fast: the last 4 exchanges are kept word
             for word and older ones are condensed into a short running summary, so follow-ups keep their context without resending the
             whole conversation.
           </CardDescription>

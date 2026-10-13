@@ -8,13 +8,14 @@ import { SessionsProvider } from "@/components/sessions/sessions-provider";
 import { THEME_SCRIPT, ThemeProvider } from "@/components/theme";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RENAME_SCRIPT } from "@/lib/rename";
 
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "FilingLens",
+  title: "FinCite",
   description: "Grounded Q&A over company annual reports",
 };
 
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // suppressHydrationWarning: THEME_SCRIPT may add the `dark` class before React hydrates.
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: RENAME_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="font-sans">

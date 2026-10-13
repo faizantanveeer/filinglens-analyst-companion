@@ -136,12 +136,11 @@ MIGRATIONS = {
         "filetype": "TEXT DEFAULT 'pdf'",
         "progress": "REAL DEFAULT 0",  # 0..1 while processing
         "stage": "TEXT",  # e.g. "Parsing 48/152 pages"
-        "source_url": "TEXT",  # where an imported filing came from (EDGAR)
         "protected": "INTEGER DEFAULT 0",  # the bundled sample in the public demo; can't be deleted
         "owner_id": "TEXT",  # NULL only for the protected public sample
     },
     "traces": {
-        "owner": "TEXT",  # X-Client-Id, so Insights only shows a visitor their own requests
+        "owner": "TEXT",  # user id, so Insights only shows people their own requests
     },
     "sessions": {
         "pinned": "INTEGER DEFAULT 0",  # pinned chats are listed first, in their own section

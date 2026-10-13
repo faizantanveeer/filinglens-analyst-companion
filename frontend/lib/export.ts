@@ -12,7 +12,7 @@ function cite(c: Citation | undefined): string {
 }
 
 export function threadToMarkdown(title: string, messages: Message[]): string {
-  const lines = [`# ${title}`, "", `_Exported from FilingLens on ${new Date().toLocaleString()}_`, ""];
+  const lines = [`# ${title}`, "", `_Exported from FinCite on ${new Date().toLocaleString()}_`, ""];
   for (const m of messages) {
     if (m.role === "user") {
       lines.push(`## ${m.content}`, "");

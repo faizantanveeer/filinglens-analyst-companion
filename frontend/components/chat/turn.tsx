@@ -33,10 +33,10 @@ const NOTICE = {
   not_found: {
     icon: SearchX,
     title: "Not found in your documents",
-    hint: "FilingLens couldn't find support for this, so it didn't guess.",
+    hint: "",
   },
   refusal: { icon: ShieldAlert, title: "Request blocked", hint: "" },
-  out_of_scope: { icon: Info, title: "Outside your documents", hint: "Turn on Web in the question box to answer questions like this." },
+  out_of_scope: { icon: Info, title: "Outside your documents", hint: "" },
 } as const;
 
 function SectionLabel({ icon: Icon, children }: { icon: typeof Sparkles; children: React.ReactNode }) {
@@ -197,6 +197,7 @@ export function Turn({ question, m, onCite, onRetry }: { question: string; m?: M
   const working = m?.status === "streaming" && !m.content;
   const notice = m?.answerType && m.answerType in NOTICE ? NOTICE[m.answerType as keyof typeof NOTICE] : null;
   const web = m?.answerType === "web";
+  const chat = m?.answerType === "chat"; // conversational reply: no sources, no "Answer" heading
   const steps = [...new Set(m?.steps ?? [])];
 
   return (
@@ -240,16 +241,18 @@ export function Turn({ question, m, onCite, onRetry }: { question: string; m?: M
           </div>
         ) : (
           <>
-            <SourceCards citations={citations} onOpen={onCite} />
+            {!chat && <SourceCards citations={citations} onOpen={onCite} />}
             <section aria-label="Answer">
-              <SectionLabel icon={web ? Globe : Sparkles}>
-                Answer
-                {web && (
-                  <span className="rounded-full border border-dashed px-2 py-0.5 text-xs font-normal">
-                    From the web · {m.meta?.web_reason ?? "not in your documents"}
-                  </span>
-                )}
-              </SectionLabel>
+              {!chat && (
+                <SectionLabel icon={web ? Globe : Sparkles}>
+                  Answer
+                  {web && (
+                    <span className="rounded-full border border-dashed px-2 py-0.5 text-xs font-normal">
+                      From the web · {m.meta?.web_reason ?? "not in your documents"}
+                    </span>
+                  )}
+                </SectionLabel>
+              )}
               {m.deep && m.status === "done" && steps.length > 0 && (
                 <details className="group mb-4 text-xs text-muted-foreground">
                   <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-1 font-medium outline-none select-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">

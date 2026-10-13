@@ -133,7 +133,8 @@ function WebToggle({ on, hasKey, onChange }: { on: boolean; hasKey: boolean; onC
 function ScopePicker({ docs, scope, onChange }: { docs: DocumentInfo[]; scope: string[] | null; onChange: (ids: string[] | null) => void }) {
   const selected = new Set(scope ?? docs.map((d) => d.id));
   const all = scope === null || selected.size === docs.length;
-  const label = all ? "All documents" : selected.size === 1 ? docs.find((d) => selected.has(d.id))?.filename ?? "1 document" : `${selected.size} documents`;
+  const label =
+    docs.length === 0 ? "No documents" : docs.length === 1 ? docs[0].filename : all ? "All documents" : selected.size === 1 ? docs.find((d) => selected.has(d.id))?.filename ?? "1 document" : `${selected.size} documents`;
   const toggle = (id: string) => {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
@@ -169,24 +170,36 @@ function ScopePicker({ docs, scope, onChange }: { docs: DocumentInfo[]; scope: s
           className="z-50 w-72 max-w-[calc(100vw-24px)] rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-lg outline-none"
         >
           <p className="px-2.5 pt-1 pb-2 text-xs font-medium text-muted-foreground">Search in</p>
-          <button type="button" className={item} onClick={() => onChange(null)}>
-            <span className="grid size-4 place-items-center">{all && <Check className="size-4 text-primary" aria-hidden />}</span>
-            All documents
-          </button>
-          <div className="my-1 h-px bg-border" />
-          <ul className="max-h-60 overflow-y-auto">
-            {docs.map((d) => (
-              <li key={d.id}>
-                <button type="button" role="menuitemcheckbox" aria-checked={selected.has(d.id)} className={item} onClick={() => toggle(d.id)}>
-                  <span className={cn("grid size-4 shrink-0 place-items-center rounded border", selected.has(d.id) && "border-primary bg-primary text-primary-foreground")}>
-                    {selected.has(d.id) && <Check className="size-3" aria-hidden />}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{d.filename}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{d.pages}p</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {docs.length === 0 ? (
+            <p className="px-2.5 pb-2 text-sm text-muted-foreground">
+              No documents yet.{" "}
+              <Link href="/documents" className="font-medium text-foreground underline underline-offset-4">
+                Upload one
+              </Link>{" "}
+              to start asking.
+            </p>
+          ) : (
+            <>
+              <button type="button" className={item} onClick={() => onChange(null)}>
+                <span className="grid size-4 place-items-center">{all && <Check className="size-4 text-primary" aria-hidden />}</span>
+                All documents
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <ul className="max-h-60 overflow-y-auto">
+                {docs.map((d) => (
+                  <li key={d.id}>
+                    <button type="button" role="menuitemcheckbox" aria-checked={selected.has(d.id)} className={item} onClick={() => toggle(d.id)}>
+                      <span className={cn("grid size-4 shrink-0 place-items-center rounded border", selected.has(d.id) && "border-primary bg-primary text-primary-foreground")}>
+                        {selected.has(d.id) && <Check className="size-3" aria-hidden />}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{d.filename}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{d.pages}p</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              </>
+          )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -267,7 +280,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
       <div className="flex items-center gap-1.5 px-3 pt-1 pb-3 sm:gap-2">
         <ModeSwitch deep={deep} onChange={onDeepChange} />
         <WebToggle on={webOn} hasKey={hasSearchKey} onChange={onWebChange} />
-        {docs && docs.length > 1 && <ScopePicker docs={docs} scope={scope} onChange={onScopeChange} />}
+        {docs && <ScopePicker docs={docs} scope={scope} onChange={onScopeChange} />}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           <ModelChip deep={deep} />
           {busy ? (
