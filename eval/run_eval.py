@@ -141,7 +141,7 @@ def answer_eval(golden: list[dict], doc_id: str, cfg: LLMConfig, provider: str, 
 
 def write_results(ret: dict, ans: dict | None, top_k: int, cfg_line: str) -> None:
     lines = [
-        "# FilingLens evaluation results",
+        "# FinCite evaluation results",
         "",
         f"Generated {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} on `{REPORT.name}` with {sum(1 for _ in GOLDEN.open())} golden questions.",
         f"Config: top_k={top_k}, MIN_RERANK_SCORE={settings.min_rerank_score}, {cfg_line}",

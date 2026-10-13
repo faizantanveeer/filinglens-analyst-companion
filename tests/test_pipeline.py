@@ -7,6 +7,7 @@ from backend.app.ingest.chunker import Chunk
 from backend.app.ingest.indexer import index_chunks
 from backend.app.llm.gateway import LLMConfig, LLMResult, mask
 from backend.app.pipeline import answer, calculator, chart, orchestrator, router
+from backend.app.pipeline import converse as converse_mod
 from backend.app.pipeline import deep as deep_mod
 from backend.app.pipeline.calculator import safe_eval
 from backend.app.pipeline.guard_input import check_input
@@ -82,7 +83,7 @@ def fake_llm(replies):
 
 def run_chat(monkeypatch, question, replies, search_key=None, deep=False):
     fake = fake_llm(replies)
-    for mod in (router, answer, calculator, chart, deep_mod):
+    for mod in (router, answer, calculator, chart, deep_mod, converse_mod):
         monkeypatch.setattr(mod, "complete", fake)
     req = ChatRequest(
         question=question,
@@ -108,7 +109,7 @@ def test_end_to_end_calculation_and_citations(monkeypatch):
                 "result_label": "Revenue growth",
                 "result_unit": "%",
             },
-            "FilingLens": {"answer": "Revenue grew 20.65% [C1][C2].", "citations": ["C1", "C2"], "unanswerable": False},
+            "FinCite": {"answer": "Revenue grew 20.65% [C1][C2].", "citations": ["C1", "C2"], "unanswerable": False},
         },
     )
     assert events[-1][0] == "done", events
@@ -124,7 +125,7 @@ def test_hallucinated_number_abstains(monkeypatch):
         "What were revenues in 2023?",
         {
             "Classify": {"intent": "lookup", "needs_calc": False, "complexity": "low"},
-            "FilingLens": {"answer": "Revenues were $999,999 million [C1].", "citations": ["C1"], "unanswerable": False},
+            "FinCite": {"answer": "Revenues were $999,999 million [C1].", "citations": ["C1"], "unanswerable": False},
         },
     )
     assert events[-1][1]["answer_type"] == "not_found"
@@ -253,3 +254,65 @@ def test_deep_mode_plans_sub_questions(monkeypatch):
     assert any(s.startswith("Researching 1/2") for s in steps)
     done = dict(events)["done"]
     assert done["answer_type"] == "answer" and done["deep"] and done["model"] == "fake/large"
+
+
+# ---------- conversation: not every message is a document lookup ----------
+
+CHAT = "this reply contains no facts"  # marker in the conversational prompt (checked before "FinCite")
+
+
+def test_conversational_message_gets_a_reply_without_searching(monkeypatch):
+    events = run_chat(
+        monkeypatch,
+        "Which documents do you have?",
+        {
+            "Classify": {"intent": "chat", "needs_calc": False, "complexity": "low"},
+            CHAT: {"reply": "I can see your annual report. Ask me about its sales, profit or risks.", "suggestions": ["What were total sales?"]},
+        },
+    )
+    steps = [d["label"] for e, d in events if e == "step"]
+    done = dict(events)["done"]
+    assert done["answer_type"] == "chat" and not any(s.startswith(("Retrieving", "Reranking")) for s in steps)
+    assert "".join(d["text"] for e, d in events if e == "token").startswith("I can see your annual report")
+
+
+def test_greeting_skips_the_classifier(monkeypatch):
+    events = run_chat(monkeypatch, "hello!", {CHAT: {"reply": "Hi! What would you like to know about your report?", "suggestions": []}})
+    assert dict(events)["done"]["answer_type"] == "chat"
+
+
+def test_chat_reply_may_not_state_figures(monkeypatch):
+    """A conversational reply has no sources, so a figure in it would be ungrounded: use the safe reply."""
+    events = run_chat(
+        monkeypatch,
+        "thanks!",
+        {CHAT: {"reply": "You're welcome! By the way, revenue was $364,482 million.", "suggestions": []}},
+    )
+    text = "".join(d["text"] for e, d in events if e == "token")
+    assert "364" not in text and dict(events)["done"]["answer_type"] == "chat"
+
+
+def test_out_of_scope_is_declined_politely(monkeypatch):
+    events = run_chat(
+        monkeypatch,
+        "How do I bake sourdough bread?",
+        {
+            "Classify": {"intent": "out_of_scope", "needs_calc": False, "complexity": "low"},
+            CHAT: {"reply": "I only answer from your reports, so baking is outside what I can help with.", "suggestions": []},
+        },
+    )
+    assert dict(events)["done"]["answer_type"] == "out_of_scope"
+    assert "".join(d["text"] for e, d in events if e == "token").startswith("I only answer from your reports")
+
+
+def test_not_found_says_how_to_ask_instead(monkeypatch):
+    events = run_chat(
+        monkeypatch,
+        "What were revenues in 2023?",
+        {
+            "Classify": {"intent": "lookup", "needs_calc": False, "complexity": "low"},
+            "FinCite": {"answer": "", "citations": [], "unanswerable": True},
+        },
+    )
+    text = "".join(d["text"] for e, d in events if e == "token")
+    assert dict(events)["done"]["answer_type"] == "not_found" and "won't guess" in text and "year" in text

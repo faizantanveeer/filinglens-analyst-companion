@@ -98,7 +98,6 @@ class DocumentOut(BaseModel):
     filetype: str | None = "pdf"
     progress: float | None = 0
     stage: str | None = None
-    source_url: str | None = None
     protected: bool | None = False
     owner_id: str | None = None
 
@@ -140,7 +139,7 @@ class AnswerJSON(BaseModel):
 
 
 class RouteJSON(BaseModel):
-    intent: Literal["lookup", "compare", "summarize", "out_of_scope"]
+    intent: Literal["lookup", "compare", "summarize", "chat", "out_of_scope"]
     needs_calc: bool = False
     needs_chart: bool = False
     complexity: Literal["low", "high"] = "high"

@@ -39,7 +39,7 @@ export type ChartData = {
   dropped_points: number;
 };
 
-export type AnswerType = "answer" | "web" | "not_found" | "refusal" | "out_of_scope";
+export type AnswerType = "answer" | "chat" | "web" | "not_found" | "refusal" | "out_of_scope";
 
 export type DoneEvent = {
   answer_type: AnswerType;

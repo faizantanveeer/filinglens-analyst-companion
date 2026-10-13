@@ -16,6 +16,7 @@ from ..schemas import ChatRequest
 from ..sessions import Conversation
 from . import deep as deep_research
 from .answer import NOT_FOUND, build_context, generate_answer
+from .converse import converse
 from .calculator import calculate
 from .chart import build_chart
 from .guard_input import check_input
@@ -26,9 +27,16 @@ from .web_search import WebSearchError, build_web_context, tavily_search
 
 Event = tuple[str, dict]
 
-SCOPE_MESSAGE = "I can only answer questions about the uploaded annual reports."
-GREETING_MESSAGE = "Hi! Ask me anything about your uploaded annual reports."
-NOT_FOUND_ANYWHERE = "Not found in your documents or on the web."
+NOT_FOUND_ANYWHERE = "I couldn't find this in your documents or on the web, so I won't guess."
+
+
+def not_found_text(names: list[str]) -> str:
+    """Strict, but helpful: say where we looked and how to ask so the answer can be found."""
+    where = names[0] if len(names) == 1 else f"your {len(names)} documents" if names else "your documents"
+    return (
+        f"I couldn't find this in {where}, so I won't guess. Try the wording the report uses "
+        '(for example "net sales" or "profit after tax"), or add the year or section you mean.'
+    )
 
 
 def step(sid: str, label: str) -> Event:
@@ -198,10 +206,20 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
         trace.question = question
 
         doc_ids = req.doc_ids or []  # the API passes exactly the documents this user may search
-        if not doc_ids:
-            yield "error", {"message": "No documents are indexed yet. Upload a PDF on the Documents page."}
-            return
-        filenames = {d["id"]: d["filename"] for d in documents.list_all()}
+        all_docs = {d["id"]: d for d in documents.list_all()}
+        filenames = {i: d["filename"] for i, d in all_docs.items()}
+        scope_docs = [all_docs[i] for i in doc_ids if i in all_docs]
+        nothing_found = not_found_text([d["filename"] for d in scope_docs])
+
+        # Conversation (no document search): replies never state company facts (see converse.py).
+        def chat_reply(kind: str, answer_type: str) -> Iterator[Event]:
+            yield step("chat", "Replying…")
+            with trace.step("chat"):
+                reply, c_llm = converse(question, kind, scope_docs, history, cfg, web_ok)
+            trace.add(c_llm)
+            trace.route = answer_type
+            yield from finish(trace, answer_type, reply.text, [], {"query": question}, reply.suggestions)
+
         # Deep answers differ from normal ones, so they never share cache rows.
         docset = semantic_cache.docset_key(doc_ids + (["deep"] if deep else []))
         # Session context: stored turns (bounded: summary + recent window) win over client-sent history.
@@ -209,6 +227,10 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
             history, summary = convo.recent, convo.summary
         else:
             history, summary = [t.model_dump() for t in req.history][-8:], ""
+
+        if not doc_ids:  # nothing uploaded yet: still talk, and point to the Documents page
+            yield from chat_reply("chat", "chat")
+            return
 
         # 2. Rewrite follow-ups into a standalone query (small model; skipped on the first turn).
         query = question
@@ -246,16 +268,14 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
         if deep:
             r = Route(r.intent, r.needs_calc, "high", "large", r.source, r.needs_chart)
         trace.intent, trace.complexity = r.intent, r.complexity
-        if r.intent == "greeting":
-            trace.route = "out_of_scope"
-            yield from finish(trace, "out_of_scope", GREETING_MESSAGE, [])
+        if r.intent == "chat":
+            yield from chat_reply("chat", "chat")
             return
         if r.intent == "out_of_scope":
             if web_ok:
                 yield from answer_from_web(query, r.tier, cfg, search_key, deep, trace, "outside the documents", prefs, opts.explain_terms)
             else:
-                trace.route = "out_of_scope"
-                yield from finish(trace, "out_of_scope", SCOPE_MESSAGE, [])
+                yield from chat_reply("out_of_scope", "out_of_scope")
             return
 
         # 5. Retrieval: hybrid + rerank (or deep research over sub-questions), then the abstain gate.
@@ -282,7 +302,7 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
                 yield from answer_from_web(query, r.tier, cfg, search_key, deep, trace, "not in the documents", prefs, opts.explain_terms)
             else:
                 trace.route = "not_found"
-                yield from finish(trace, "not_found", NOT_FOUND, [])
+                yield from finish(trace, "not_found", nothing_found, [])
             return
 
         context, labelled = build_context(top, filenames)
@@ -330,7 +350,7 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
                 yield from answer_from_web(query, r.tier, cfg, search_key, deep, trace, "not answerable from the documents", prefs, opts.explain_terms)
             else:
                 trace.route = "not_found"
-                yield from finish(trace, "not_found", NOT_FOUND, [])
+                yield from finish(trace, "not_found", nothing_found, [])
             return
 
         # 8. Optional LLM judge, only where it's worth the tokens.

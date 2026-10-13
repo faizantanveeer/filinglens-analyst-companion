@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ExternalLink, FileText, Loader2, Trash2, UploadCloud, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Loader2, Trash2, UploadCloud, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -251,17 +251,6 @@ export function DocumentsView() {
                 </div>
                 {d.status === "processing" && (
                   <Progress value={Math.round((d.progress ?? 0) * 100)} className="order-last h-1.5 w-full" aria-label={`Indexing ${d.filename}`} />
-                )}
-                {d.source_url && (
-                  <a
-                    href={d.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                    title="Original source"
-                  >
-                    Source <ExternalLink className="size-3" aria-hidden />
-                  </a>
                 )}
                 <StatusBadge doc={d} />
                 {d.protected || !(me && (d.owner_id === me.id || me.role === "admin")) ? (

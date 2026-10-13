@@ -71,7 +71,3 @@ def parse_batches(path: Path, filetype: str = "pdf", workers: int | None = None,
         for part in pool.map(_parse_range, ranges):  # map preserves order
             yield [Page(p, t) for p, t in part]
 
-
-def parse_pdf(path: Path, filetype: str = "pdf") -> list[Page]:
-    """All pages at once (used by tests and the eval)."""
-    return [p for batch in parse_batches(path, filetype) for p in batch]

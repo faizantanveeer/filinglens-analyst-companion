@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, FileText, LogIn, MessageSquare, PanelLeft, ScanSearch, Settings, SquarePen, X } from "lucide-react";
+import { BarChart3, FileText, LogIn, MessageSquare, PanelLeft, Settings, SquarePen, X } from "lucide-react";
 
 import { ApiStatus } from "@/components/api-status";
 import { AccountBox, ProfileMenu } from "@/components/auth/account-box";
@@ -14,14 +14,31 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const SIDEBAR_KEY = "filinglens.sidebarOpen";
+const SIDEBAR_KEY = "fincite.sidebarOpen";
 const focusRing = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
+/** The FinCite AI mark (same shape as app/icon.svg): rising bars inside citation brackets. */
+function Mark() {
+  return (
+    <svg viewBox="0 0 32 32" className="size-6 shrink-0" aria-hidden>
+      <rect width="32" height="32" rx="8" className="fill-primary" />
+      <path d="M10 7.5H6.5v17H10M22 7.5h3.5v17H22" fill="none" stroke="white" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+      <g fill="white">
+        <rect x="10.5" y="17" width="2.6" height="4.5" rx="0.8" />
+        <rect x="14.7" y="14" width="2.6" height="7.5" rx="0.8" />
+        <rect x="18.9" y="10.5" width="2.6" height="11" rx="0.8" />
+      </g>
+    </svg>
+  );
+}
 
 function Brand() {
   return (
-    <Link href="/" aria-label="FilingLens home" className={cn("flex items-center gap-2 rounded-md font-semibold tracking-tight", focusRing)}>
-      <ScanSearch className="size-5 text-primary" aria-hidden />
-      <span>FilingLens</span>
+    <Link href="/" aria-label="FinCite AI home" className={cn("flex items-center gap-2 rounded-md font-semibold tracking-tight", focusRing)}>
+      <Mark />
+      <span>
+        FinCite <span className="text-primary">AI</span>
+      </span>
     </Link>
   );
 }

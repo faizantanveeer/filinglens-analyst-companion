@@ -21,6 +21,7 @@ from .embeddings import warm_up
 from .ingest.parser import SUPPORTED, filetype_for
 from .ingest.preview import render_page
 from .llm.gateway import LLMConfig, LLMError, complete
+from .llm.models import ModelListError, list_models
 from .obs.tracer import insights as trace_insights
 from .pipeline import orchestrator
 from .pipeline.web_search import WebSearchError, tavily_search
@@ -213,12 +214,12 @@ def _check_upload_allowed(user: dict, size: int) -> None:
         raise HTTPException(413, f"File is larger than {lim['upload_mb']} MB.")
 
 
-def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, filetype: str, user: dict, source_url: str | None = None) -> dict:
+def _store_and_index(background: BackgroundTasks, data: bytes, filename: str, filetype: str, user: dict) -> dict:
     digest = documents.sha256(data)
     if existing := documents.find_by_hash(digest, user["id"]):
         return existing  # same file already uploaded by this user: don't index it twice
     doc_id = uuid.uuid4().hex[:12]
-    doc = documents.register(doc_id, filename[:200], digest, filetype, source_url, owner_id=user["id"])
+    doc = documents.register(doc_id, filename[:200], digest, filetype, owner_id=user["id"])
     documents.save_file(doc_id, filetype, data)
     return _run_ingest(background, doc_id) or doc
 
@@ -383,9 +384,11 @@ def chat(
         raise HTTPException(404, "Chat session not found.")
     # Only ever search documents this user may read: their own plus the public sample.
     allowed = documents.ready_ids_for(user)
-    req.doc_ids = [d for d in (req.doc_ids or allowed) if d in set(allowed)]
-    if not req.doc_ids:
-        raise HTTPException(400, "No documents available. Upload one on the Documents page.")
+    requested = req.doc_ids
+    req.doc_ids = [d for d in (requested or allowed) if d in set(allowed)]
+    if requested and not req.doc_ids:
+        raise HTTPException(400, "None of the selected documents are available.")
+    # No documents at all: the assistant still replies (and points to the Documents page) instead of erroring.
     auth.charge_question(user)  # 402 when the trial / monthly allowance is used up
     convo = sessions.conversation(owner, req.session_id)
 
@@ -508,13 +511,25 @@ def validate_settings(
     return {"ok": True, "model": result.model, "message": f"Connected to {result.model}."}
 
 
+@app.post("/settings/models")
+def provider_models(req: ValidateRequest, x_llm_key: str | None = Header(default=None), user: dict = Depends(current_user)):
+    """The chat models this key can use, from the provider's own list (so nothing retired is offered)."""
+    provider = req.settings.provider
+    if provider not in ("ollama", "azure") and not x_llm_key:
+        raise HTTPException(401, "Missing API key. Add one in Settings.")
+    try:
+        return {"models": list_models(provider, x_llm_key)}
+    except ModelListError as exc:
+        return {"models": [], "message": str(exc)}
+
+
 @app.post("/settings/validate-search")
 def validate_search(x_search_key: str | None = Header(default=None), user: dict = Depends(current_user)):
     """One-result Tavily search so the user learns now whether the web-search key works."""
     if not x_search_key:
         raise HTTPException(401, "Missing web search key. Add one in Settings.")
     try:
-        results = tavily_search("FilingLens connection test", x_search_key, max_results=1)
+        results = tavily_search("FinCite connection test", x_search_key, max_results=1)
     except WebSearchError as exc:
         return {"ok": False, "message": str(exc)}
     return {"ok": True, "message": f"Web search connected ({len(results)} result)."}

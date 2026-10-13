@@ -31,11 +31,17 @@ After the change (`make eval`): **Hit@5 0.94, MRR 0.68, Hit@8 1.00** (were 0.88 
 |---|---|---|
 | −2.0 | 0.90 | 0 |
 | −1.0 | 0.95 | 0 |
-| **0.0 (kept)** | **0.95** | **0** |
+| 0.0 (first choice) | 0.95 | 0 |
 | +1.0 | 0.85 | 2 |
 
 The one miss at 0.0 is "revenue in fiscal year 2025": the topic matches strongly (score +3.2) even though the year
 doesn't exist in the report. A retrieval threshold can't catch that, so the answer step and the verifier must.
+
+**Revised to −6.0.** On a second, table-heavy report (Nestlé Pakistan 2017 financial statements), 0.0 refused
+answerable questions: the right pages scored −4.8 to +3.4 ("What was the net profit?" −4.8, "debt to equity" −3.2),
+while off-topic questions ("capital of France", "how to bake bread") scored −10 to −11. −6.0 sits in that gap and
+refused no answerable Berkshire question either. The gate now only screens out clearly off-topic results; the
+answer step (which can mark a question unanswerable) and the number verifier handle the rest.
 
 ## 3. Ingestion speed (152-page PDF, 414 chunks)
 

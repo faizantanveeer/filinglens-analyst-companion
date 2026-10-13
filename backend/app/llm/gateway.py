@@ -9,7 +9,7 @@ from ..config import settings
 
 # LiteLLM (local installs) gives one interface plus cost accounting, but it's ~160 MB. The serverless
 # bundle omits it, and calls go through each provider's OpenAI-compatible endpoint with the slim
-# `openai` SDK instead (see _call_openai_compatible). Cost then isn't tracked (reported as 0).
+# `openai` SDK instead (see _call_openai_compatible). Cost then comes from the PRICES table below.
 try:
     import litellm
 
@@ -51,20 +51,21 @@ class LLMConfig:
 # List prices in USD per million tokens (input, output), used when LiteLLM isn't installed (cloud mode)
 # or doesn't know the model. Longest matching prefix wins; unknown models cost 0. Estimates only.
 PRICES: dict[str, tuple[float, float]] = {
+    "gpt-5.6-sol": (4.00, 20.00),
+    "gpt-5.6-terra": (2.00, 12.00),
+    "gpt-5.6-luna": (0.20, 1.20),
+    "gpt-5.4-mini": (0.75, 4.50),
+    "gpt-5.4-nano": (0.20, 1.25),
     "gpt-5-nano": (0.05, 0.40),
     "gpt-5-mini": (0.25, 2.00),
     "gpt-5": (1.25, 10.00),
-    "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-4.1": (2.00, 8.00),
-    "gpt-4o-mini": (0.15, 0.60),
-    "gpt-4o": (2.50, 10.00),
+    "claude-haiku-5": (0.10, 0.50),
     "claude-haiku": (1.00, 5.00),
+    "claude-sonnet-5": (2.00, 10.00),
     "claude-sonnet": (3.00, 15.00),
+    "claude-opus-5-5": (4.00, 20.00),
     "claude-opus": (5.00, 25.00),
-    "gemini-2.5-flash": (0.30, 2.50),
-    "gemini-2.5-pro": (1.25, 10.00),
-    "llama-3.1-8b": (0.05, 0.08),
-    "llama-3.3-70b": (0.59, 0.79),
+    "claude-fable": (10.00, 50.00),
 }
 
 
@@ -99,7 +100,13 @@ def mask(text: str, secrets: list[str]) -> str:
 
 
 def qualify(model: str, provider: str) -> str:
-    """LiteLLM routes by prefix: 'anthropic/claude-haiku-4-5'. Accept bare names from Settings."""
+    """LiteLLM routes by prefix: 'anthropic/claude-haiku-4-5'. Accept bare names from Settings.
+
+    Groq names some of its own models "openai/gpt-oss-120b"; on Groq that's a model name, not a
+    request to route to OpenAI.
+    """
+    if provider == "groq" and model.startswith("openai/gpt-oss"):
+        return f"groq/{model}"
     if any(model.startswith(f"{p}/") for p in PROVIDERS):
         return model
     return f"{provider}/{model}"

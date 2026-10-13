@@ -3,13 +3,13 @@
 tests/
 eval/
 docs/
-deploy/
 data/
 .venv/
 **/__pycache__/
 *.pyc
 .env
-Dockerfile.*
+Dockerfile
 docker-compose.yml
-start.bat
+start.command
+logs/
 Makefile

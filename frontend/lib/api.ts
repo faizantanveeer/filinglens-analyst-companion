@@ -43,9 +43,9 @@ async function errorFrom(res: Response): Promise<ApiError> {
 // Every visitor has a server-issued session: a guest one is created automatically on first use,
 // and signing up / logging in replaces it. Kept in localStorage so it survives reloads and tabs.
 
-const TOKEN_KEY = "filinglens.session";
-export const AUTH_EVENT = "filinglens:auth"; // token changed (login, logout, new guest)
-export const CREDITS_EVENT = "filinglens:credits"; // a 402: trial or allowance used up
+const TOKEN_KEY = "fincite.session";
+export const AUTH_EVENT = "fincite:auth"; // token changed (login, logout, new guest)
+export const CREDITS_EVENT = "fincite:credits"; // a 402: trial or allowance used up
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -76,7 +76,7 @@ export async function ensureSession(): Promise<void> {
     try {
       res = await fetch(`${API_URL}/auth/guest`, { method: "POST" });
     } catch {
-      throw new ApiError(0, "Cannot reach the FilingLens API. Is the backend running?");
+      throw new ApiError(0, "Cannot reach the FinCite API. Is the backend running?");
     }
     if (!res.ok) throw await errorFrom(res);
     setToken((await res.json()).token, false);
@@ -94,7 +94,7 @@ async function send(path: string, init: RequestInit = {}, retried = false): Prom
     res = await fetch(`${API_URL}${path}`, { ...init, headers: headers(init.headers) });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    throw new ApiError(0, "Cannot reach the FilingLens API. Is the backend running?");
+    throw new ApiError(0, "Cannot reach the FinCite API. Is the backend running?");
   }
   if (res.status === 401 && !isAuth && !retried) {
     setToken(null, false); // expired or revoked: start a fresh guest session once and retry
@@ -135,7 +135,6 @@ export type DocumentInfo = {
   filetype?: string | null;
   progress?: number | null; // 0..1 while processing
   stage?: string | null; // e.g. "Indexed 48/152 pages · 130 chunks"
-  source_url?: string | null; // where the document came from, if known
   protected?: boolean | null; // the bundled sample in the public demo (can't be deleted)
   owner_id?: string | null;
 };
@@ -266,6 +265,10 @@ export const api = {
 
   validateSettings: (s: AppSettings) =>
     request<{ ok: boolean; message: string; model?: string }>("/settings/validate", json({ settings: toRequestSettings(s, 0) })),
+
+  /** Chat models this key can use, from the provider's own list (empty for Azure). */
+  listModels: (s: AppSettings) =>
+    request<{ models: string[]; message?: string }>("/settings/models", json({ settings: toRequestSettings(s, 0) })),
 
   validateSearch: () => request<{ ok: boolean; message: string }>("/settings/validate-search", { method: "POST" }),
 

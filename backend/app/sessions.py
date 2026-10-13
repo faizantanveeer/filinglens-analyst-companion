@@ -82,10 +82,6 @@ def _snippet(text: str, query: str, width: int = 90) -> str:
     return ("…" if start else "") + s + ("…" if start + width < len(text) else "")
 
 
-def rename(owner: str, sid: str, title: str) -> bool:
-    return update(owner, sid, title=title)
-
-
 def update(owner: str, sid: str, title: str | None = None, pinned: bool | None = None) -> bool:
     """Rename and/or pin. Neither changes updated_at, so the chat keeps its place in history."""
     sets, args = [], []

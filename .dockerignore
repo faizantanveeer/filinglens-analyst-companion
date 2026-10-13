@@ -1,9 +1,15 @@
+# Only backend/, frontend/ and the requirements files go into the images.
+.git
 .venv
 **/__pycache__
 data
-eval/.index
-eval/data
+logs
+eval
+tests
+docs
+api
 frontend/node_modules
 frontend/.next
 frontend/.env.local
 .env
+*.log

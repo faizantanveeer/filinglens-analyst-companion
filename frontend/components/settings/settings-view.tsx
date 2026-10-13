@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Eye, EyeOff, Globe, Loader2, PlugZap, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Globe, ListRestart, Loader2, PlugZap, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MemorySettings } from "@/components/settings/memory-settings";
+import { ModelPicker } from "@/components/settings/model-picker";
 import { api, ApiError, AUTH_EVENT } from "@/lib/api";
 import {
   getApiKey,
@@ -72,10 +73,19 @@ function Field({ label, hint, children, id }: { label: string; hint?: string; ch
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && (
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
+
+// Fallback suggestions: every provider's models, written with their provider prefix (Azure needs its own endpoint, so it's left out).
+const FALLBACK_SUGGESTIONS = PROVIDERS.filter((p) => p.value !== "azure").flatMap((p) =>
+  p.models.map((m) => ({ id: `${p.value}/${m.id}`, note: `${p.label} · ${m.note}` })),
+);
 
 function Toggle({ id, label, hint, checked, onChange }: { id: string; label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -96,7 +106,10 @@ export function SettingsView() {
   const [testing, setTesting] = useState(false);
   const [searchKey, setSKey] = useState("");
   const [testingSearch, setTestingSearch] = useState(false);
+  const [available, setAvailable] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
   const isAzure = settings.provider === "azure";
+  const preset = PROVIDERS.find((p) => p.value === settings.provider)!;
 
   // Keys come from sessionStorage after mount (not available during server render).
   // Re-read after log-in / log-out too: logging out clears the keys, and the form must not keep showing them.
@@ -112,8 +125,24 @@ export function SettingsView() {
   }, []);
 
   const changeProvider = (p: Provider) => {
-    const preset = PROVIDERS.find((x) => x.value === p)!;
-    update({ provider: p, small_model: preset.small, large_model: preset.large });
+    const next = PROVIDERS.find((x) => x.value === p)!;
+    update({ provider: p, small_model: next.small, large_model: next.large });
+    setAvailable([]); // the loaded list belonged to the previous provider
+  };
+
+  /** Ask the provider which chat models this key can use. quiet: no toast on success (after a connection test). */
+  const loadModels = async (quiet = false) => {
+    setLoadingModels(true);
+    try {
+      const res = await api.listModels(settings);
+      setAvailable(res.models);
+      if (res.message) toast.error(res.message);
+      else if (!quiet) toast.success(`${res.models.length} models available to your key. Pick one from the model lists.`);
+    } catch (err) {
+      if (!quiet) toast.error(err instanceof ApiError ? err.message : "Couldn't load the model list.");
+    } finally {
+      setLoadingModels(false);
+    }
   };
 
   const testSearch = async () => {
@@ -137,8 +166,10 @@ export function SettingsView() {
         return;
       }
       const res = await api.validateSettings(settings);
-      if (res.ok) toast.success(res.message);
-      else toast.error(res.message);
+      if (res.ok) {
+        toast.success(res.message);
+        if (!isAzure) void loadModels(true);
+      } else toast.error(res.message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Connection test failed.");
     } finally {
@@ -221,14 +252,28 @@ export function SettingsView() {
               label={isAzure ? "Small model deployment" : "Small model"}
               hint={isAzure ? "Deployment name from Azure AI Foundry. Used for routing, rewriting, judging" : "Routing, rewriting, calculation prep, judging"}
             >
-              <Input id="small-model" value={settings.small_model} onChange={(e) => update({ small_model: e.target.value })} />
+              <ModelPicker
+                id="small-model"
+                value={settings.small_model}
+                onChange={(v) => update({ small_model: v })}
+                suggested={preset.models}
+                available={available}
+                describedBy="small-model-hint"
+              />
             </Field>
             <Field
               id="large-model"
               label={isAzure ? "Large model deployment" : "Large model"}
               hint={isAzure ? "Deployment name. Used for complex answers" : "Complex answers"}
             >
-              <Input id="large-model" value={settings.large_model} onChange={(e) => update({ large_model: e.target.value })} />
+              <ModelPicker
+                id="large-model"
+                value={settings.large_model}
+                onChange={(v) => update({ large_model: v })}
+                suggested={preset.models}
+                available={available}
+                describedBy="large-model-hint"
+              />
             </Field>
           </div>
 
@@ -237,6 +282,12 @@ export function SettingsView() {
               {testing ? <Loader2 className="animate-spin" aria-hidden /> : <PlugZap aria-hidden />}
               Test connection
             </Button>
+            {!isAzure && (
+              <Button variant="outline" onClick={() => loadModels()} disabled={loadingModels || (!key && settings.provider !== "ollama")}>
+                {loadingModels ? <Loader2 className="animate-spin" aria-hidden /> : <ListRestart aria-hidden />}
+                Load from your account
+              </Button>
+            )}
             {key && (
               <Button
                 variant="ghost"
@@ -292,15 +343,18 @@ export function SettingsView() {
       <Card>
         <CardHeader>
           <CardTitle>Fallback (optional)</CardTitle>
-          <CardDescription>Used if the primary model errors. Use a full name like openai/gpt-5-mini or ollama/llama3.1.</CardDescription>
+          <CardDescription>
+            Used if the primary model errors. Use a full name with its provider, like anthropic/claude-haiku-4-5 or ollama/llama3.1.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-2">
           <Field id="fallback-model" label="Fallback model">
-            <Input
+            <ModelPicker
               id="fallback-model"
               value={settings.fallback_model}
               placeholder="e.g. ollama/llama3.1"
-              onChange={(e) => update({ fallback_model: e.target.value })}
+              onChange={(v) => update({ fallback_model: v })}
+              suggested={FALLBACK_SUGGESTIONS}
             />
           </Field>
           <SecretInput

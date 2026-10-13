@@ -40,9 +40,9 @@ STYLE_DEEP = (
     "Cover every sub-question you can support; say briefly what the sources do not cover. 150-350 words."
 )
 
-DOC_INTRO = "You are FilingLens, an analyst assistant answering questions about company annual reports."
+DOC_INTRO = "You are FinCite, an analyst assistant answering questions about company annual reports."
 WEB_INTRO = (
-    "You are FilingLens. The user's documents did not answer this question, so you are answering from web "
+    "You are FinCite. The user's documents did not answer this question, so you are answering from web "
     "search results instead. Be accurate and neutral; prefer the most authoritative sources."
 )
 

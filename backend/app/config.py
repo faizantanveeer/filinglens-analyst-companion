@@ -21,11 +21,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "FilingLens"
+    app_name: str = "FinCite"
     # The only browser origin allowed to call the API (CORS). Comma-separated for multiple.
     frontend_origin: str = "http://localhost:3000"
     # Optional regex for extra origins, e.g. Vercel preview deployments of *this* project:
-    # ^https://filinglens(-[a-z0-9-]+)?\.vercel\.app$
+    # ^https://fincite(-[a-z0-9-]+)?\.vercel\.app$
     frontend_origin_regex: str = ""
 
     # Public-demo hardening
@@ -91,8 +91,12 @@ class Settings(BaseSettings):
     # the cross-encoder more chances to promote a wrong one.
     rerank_pool: int = 10
     top_k: int = 5  # chunks kept after rerank (user can override per request)
-    # Cross-encoder logit below which we abstain. Tuned in Phase 7 (see eval/results.md).
-    min_rerank_score: float = 0.0
+    # Cross-encoder logit below which we abstain (see eval/TUNING.md).
+    # Only a safety net for clearly off-topic results; the answer step and the verifier decide the rest.
+    # 0.0 (tuned on the Berkshire report alone) refused answerable questions on table-heavy reports:
+    # on a Nestlé report, right pages scored -4.8..+3.4 and off-topic questions -10..-11.
+    # The Berkshire sweep also refused no answerable question at -6.0 (eval/TUNING.md).
+    min_rerank_score: float = -6.0
 
     # Guardrails
     max_question_chars: int = 1000
@@ -156,7 +160,9 @@ class Settings(BaseSettings):
 
     @property
     def sqlite_path(self) -> Path:
-        return self.data_dir / "filinglens.db"
+        path = self.data_dir / "fincite.db"
+        legacy = self.data_dir / "filinglens.db"  # the app's former name: keep existing local data
+        return legacy if legacy.exists() and not path.exists() else path
 
 
 settings = Settings()

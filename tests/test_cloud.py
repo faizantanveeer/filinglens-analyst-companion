@@ -90,12 +90,14 @@ def test_slim_llm_client_uses_openai_compatible_endpoints(monkeypatch):
 
     monkeypatch.setattr(openai, "OpenAI", FakeClient)
     monkeypatch.setattr(gateway, "litellm", None)
-    r = gateway.complete("small", [{"role": "user", "content": "hi"}], LLMConfig("groq", "llama-3.1-8b-instant", "x", api_key="gsk-test-abcdefghijkl"), json_mode=True)
-    assert r.text == '{"ok": true}' and r.input_tokens == 11 and r.cost == pytest.approx((11 * 0.05 + 3 * 0.08) / 1e6)  # list-price estimate
+    r = gateway.complete("small", [{"role": "user", "content": "hi"}], LLMConfig("groq", "openai/gpt-oss-20b", "x", api_key="gsk-test-abcdefghijkl"), json_mode=True)
+    assert r.text == '{"ok": true}' and r.input_tokens == 11 and r.model == "groq/openai/gpt-oss-20b"
+    assert calls[1]["model"] == "openai/gpt-oss-20b"  # Groq's own model name, sent to Groq
+    assert gateway.estimate_cost("openai/gpt-5.6-luna", 11, 3) == pytest.approx((11 * 0.20 + 3 * 1.20) / 1e6)  # list-price estimate
     client_kw = calls[0][1]
     assert client_kw["base_url"] == "https://api.groq.com/openai/v1"
-    assert calls[1]["model"] == "llama-3.1-8b-instant" and "max_tokens" in calls[1] and calls[1]["response_format"] == {"type": "json_object"}
+    assert "max_tokens" in calls[1] and calls[1]["response_format"] == {"type": "json_object"}
 
     calls.clear()
-    gateway.complete("large", [{"role": "user", "content": "hi"}], LLMConfig("openai", "s", "gpt-5", api_key="sk-test-abcdefghijklmnop"))
-    assert calls[1]["model"] == "gpt-5" and "max_completion_tokens" in calls[1] and "max_tokens" not in calls[1]
+    gateway.complete("large", [{"role": "user", "content": "hi"}], LLMConfig("openai", "s", "gpt-5.6-terra", api_key="sk-test-abcdefghijklmnop"))
+    assert calls[1]["model"] == "gpt-5.6-terra" and "max_completion_tokens" in calls[1] and "max_tokens" not in calls[1]

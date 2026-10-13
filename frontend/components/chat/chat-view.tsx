@@ -139,8 +139,8 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
   };
 
   const exportThread = () => {
-    const title = turns[0]?.q.content.slice(0, 80) ?? "FilingLens chat";
-    downloadText(`${title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "filinglens-chat"}.md`, threadToMarkdown(title, messages));
+    const title = turns[0]?.q.content.slice(0, 80) ?? "FinCite chat";
+    downloadText(`${title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "fincite-chat"}.md`, threadToMarkdown(title, messages));
   };
 
   const composer = (size: "hero" | "dock") => (
@@ -208,7 +208,7 @@ export function ChatView({ sessionId = null }: { sessionId?: string | null }) {
               Ask your filings <span className="text-primary">anything</span>
             </h1>
             <p className="mx-auto max-w-md text-[15px] text-pretty text-muted-foreground">
-              Answers cite the exact page, numbers are computed in code, and if it isn&apos;t in the report, FilingLens says so.
+              Answers cite the exact page, numbers are computed in code, and if it isn&apos;t in the report, FinCite says so.
             </p>
             <DocumentsChip docs={docs} />
           </div>
