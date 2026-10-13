@@ -46,7 +46,13 @@ function Inline({ text, byLabel, onCite }: { text: string; byLabel: Map<string, 
   );
 }
 
-type Block = { type: "h"; text: string } | { type: "p"; text: string } | { type: "ul"; items: string[] };
+type Block =
+  | { type: "h"; text: string }
+  | { type: "p"; text: string }
+  | { type: "ul"; items: string[] }
+  | { type: "table"; head: string[]; rows: string[][] };
+
+const cells = (line: string) => line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 
 function toBlocks(text: string): Block[] {
   const blocks: Block[] = [];
@@ -59,7 +65,15 @@ function toBlocks(text: string): Block[] {
     const line = raw.trim();
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    const row = line.startsWith("|") && line.endsWith("|") && line.length > 2;
     if (!line) flush();
+    else if (row) {
+      flush();
+      if (/^\|[\s:|-]+\|$/.test(line)) continue; // the |---|---| line under the header
+      const prev = blocks[blocks.length - 1];
+      if (prev?.type === "table") prev.rows.push(cells(line));
+      else blocks.push({ type: "table", head: cells(line), rows: [] });
+    }
     else if (heading) {
       flush();
       blocks.push({ type: "h", text: heading[1] });
@@ -83,6 +97,31 @@ export function AnswerText({ text, citations, onCite }: { text: string; citation
           <h3 key={i} className="pt-1 text-sm font-semibold tracking-tight">
             <Inline text={b.text} byLabel={byLabel} onCite={onCite} />
           </h3>
+        ) : b.type === "table" ? (
+          <div key={i} className="overflow-x-auto rounded-lg border">
+            <table className="w-full border-collapse text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  {b.head.map((h, j) => (
+                    <th key={j} scope="col" className="px-3 py-2 text-left font-medium whitespace-nowrap">
+                      <Inline text={h} byLabel={byLabel} onCite={onCite} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {b.rows.map((r, j) => (
+                  <tr key={j} className="border-t">
+                    {r.map((c, k) => (
+                      <td key={k} className="px-3 py-2 align-top">
+                        <Inline text={c} byLabel={byLabel} onCite={onCite} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : b.type === "ul" ? (
           <ul key={i} className="list-disc space-y-1 pl-5 marker:text-muted-foreground">
             {b.items.map((item, j) => (

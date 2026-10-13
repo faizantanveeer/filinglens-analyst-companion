@@ -280,7 +280,8 @@ def run(req: ChatRequest, cfg: LLMConfig, search_key: str | None = None, convo: 
 
         # 5. Retrieval: hybrid + rerank (or deep research over sub-questions), then the abstain gate.
         search_q = retrieval_query(query)
-        if deep:
+        # Summaries need the whole report, not the 5 passages closest to one phrasing: research it like Deep mode.
+        if deep or r.intent == "summarize":
             yield step("plan", "Planning research…")
             with trace.step("plan"):
                 subs, p_llm = deep_research.plan(query, cfg)

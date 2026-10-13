@@ -48,3 +48,31 @@ def test_missing_key_and_azure():
     h = guest_headers(client)
     assert client.post("/settings/models", json={"settings": {**SETTINGS, "provider": "anthropic"}}, headers=h).status_code == 401
     assert client.post("/settings/models", json={"settings": {**SETTINGS, "provider": "azure"}}, headers=h).json() == {"models": []}
+
+
+def test_json_is_found_after_reasoning_text():
+    from backend.app.llm.gateway import parse_json
+
+    assert parse_json('<think>The user wants {intent}. Maybe {"x": 1}?</think>\n{"intent": "chat"}') == {"intent": "chat"}
+    assert parse_json('Sure! Here it is {see below}: {"reply": "Hi"}') == {"reply": "Hi"}
+
+
+def test_reasoning_models_get_room_and_json_rejections_are_retried(monkeypatch):
+    from backend.app.llm import gateway
+    from backend.app.llm.gateway import LLMConfig, LLMResult
+
+    calls = []
+
+    def fake(model, key, messages, cap, json_mode, cfg):
+        calls.append((model, cap, json_mode))
+        if json_mode:
+            raise RuntimeError("Error code: 400 - {'error': {'code': 'json_validate_failed'}}")
+        return LLMResult('{"ok": true}', model, 1, 1, 0.0)
+
+    monkeypatch.setattr(gateway, "_attempt", fake)
+    r = gateway.complete("small", [{"role": "user", "content": "hi"}], LLMConfig("groq", "qwen/qwen3.8-27b", "x", api_key="gsk-test-abcdefghijkl"), json_mode=True, max_tokens=80)
+    assert r.text == '{"ok": true}'
+    assert calls == [("groq/qwen/qwen3.8-27b", 2048, True), ("groq/qwen/qwen3.8-27b", 2048, False)]
+    calls.clear()
+    gateway.complete("small", [{"role": "user", "content": "hi"}], LLMConfig("anthropic", "claude-haiku-4-5", "x", api_key="sk-ant-test-abcdefgh"), max_tokens=80)
+    assert calls == [("anthropic/claude-haiku-4-5", 80, False)]  # non-reasoning models keep the small cap
